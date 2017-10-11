@@ -155,11 +155,10 @@ public class ServiceHttpServer extends AbstractIdleService {
   /**
    * Creates a {@link NettyHttpService} from the given host, and list of {@link HandlerDelegatorContext}s
    *
-   * @param program Program that contains the handler
-   * @param host the host which the service will run on
+   * @param program           Program that contains the handler
+   * @param host              the host which the service will run on
    * @param delegatorContexts the list {@link HandlerDelegatorContext}
-   * @param metricsContext a {@link MetricsContext} for metrics collection
-   *
+   * @param metricsContext    a {@link MetricsContext} for metrics collection
    * @return a NettyHttpService which delegates to the {@link HttpServiceHandler}s to handle the HTTP requests
    */
   private NettyHttpService createNettyHttpService(Program program, String host,
@@ -193,7 +192,7 @@ public class ServiceHttpServer extends AbstractIdleService {
     NettyHttpService.Builder builder = NettyHttpService.builder(program.getName() + "-http")
       .setHost(host)
       .setPort(0)
-      .addHttpHandlers(nettyHttpHandlers);
+      .setHttpHandlers(nettyHttpHandlers);
 
     // These properties are for unit-test only. Currently they are not controllable by the user program
     String threadPoolSize = System.getProperty(THREAD_POOL_SIZE);
@@ -236,7 +235,7 @@ public class ServiceHttpServer extends AbstractIdleService {
    * Starts the {@link NettyHttpService} and announces this runnable as well.
    */
   @Override
-  public void startUp() {
+  public void startUp() throws Exception {
     // All handlers of a Service run in the same Twill runnable and each Netty thread gets its own
     // instance of a handler (and handlerContext). Creating the logging context here ensures that the logs
     // during startup/shutdown and in each thread created are published.
@@ -248,7 +247,7 @@ public class ServiceHttpServer extends AbstractIdleService {
                                                                            String.valueOf(context.getInstanceId())));
     LOG.debug("Starting HTTP server for Service {}", program.getId());
     ProgramId programId = program.getId();
-    service.startAndWait();
+    service.start();
 
     // announce the twill runnable
     InetSocketAddress bindAddress = service.getBindAddress();
@@ -273,7 +272,7 @@ public class ServiceHttpServer extends AbstractIdleService {
   protected void shutDown() throws Exception {
     cancelDiscovery.cancel();
     try {
-      service.stopAndWait();
+      service.stop();
     } finally {
       timer.cancel();
 
