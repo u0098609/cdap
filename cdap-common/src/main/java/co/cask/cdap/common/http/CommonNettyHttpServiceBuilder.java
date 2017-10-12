@@ -18,9 +18,9 @@ package co.cask.cdap.common.http;
 import co.cask.cdap.common.HttpExceptionHandler;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
+import co.cask.http.ChannelPipelineModifier;
 import co.cask.http.NettyHttpService;
-import com.google.common.base.Function;
-import org.jboss.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPipeline;
 
 /**
  * Provides a {@link co.cask.http.NettyHttpService.Builder} that has common settings built-in.
@@ -30,11 +30,10 @@ public class CommonNettyHttpServiceBuilder extends NettyHttpService.Builder {
   public CommonNettyHttpServiceBuilder(CConfiguration cConf, String serviceName) {
     super(serviceName);
     if (cConf.getBoolean(Constants.Security.ENABLED)) {
-      this.modifyChannelPipeline(new Function<ChannelPipeline, ChannelPipeline>() {
+      setChannelPipelineModifier(new ChannelPipelineModifier() {
         @Override
-        public ChannelPipeline apply(ChannelPipeline input) {
-          input.addBefore("dispatcher", "authenticator", new AuthenticationChannelHandler());
-          return input;
+        public void modify(ChannelPipeline pipeline) {
+          pipeline.addBefore("dispatcher", "authenticator", new AuthenticationChannelHandler());
         }
       });
     }
