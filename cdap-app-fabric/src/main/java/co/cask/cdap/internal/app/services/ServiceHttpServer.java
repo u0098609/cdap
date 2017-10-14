@@ -89,8 +89,6 @@ public class ServiceHttpServer extends AbstractIdleService {
   @VisibleForTesting
   public static final String THREAD_POOL_SIZE = "cdap.service.http.thread.pool.size";
   @VisibleForTesting
-  public static final String THREAD_KEEP_ALIVE_SECONDS = "cdap.service.http.thread.keepalive.seconds";
-  @VisibleForTesting
   public static final String HANDLER_CLEANUP_PERIOD_MILLIS = "cdap.service.http.handler.cleanup.millis";
 
   private static final Logger LOG = LoggerFactory.getLogger(ServiceHttpServer.class);
@@ -198,10 +196,6 @@ public class ServiceHttpServer extends AbstractIdleService {
     String threadPoolSize = System.getProperty(THREAD_POOL_SIZE);
     if (threadPoolSize != null) {
       builder.setExecThreadPoolSize(Integer.parseInt(threadPoolSize));
-    }
-    String threadAliveSec = System.getProperty(THREAD_KEEP_ALIVE_SECONDS);
-    if (threadAliveSec != null) {
-      builder.setExecThreadKeepAliveSeconds(Long.parseLong(threadAliveSec));
     }
 
     return builder.build();
