@@ -24,14 +24,13 @@ import co.cask.http.ChunkResponder;
 import co.cask.http.HttpResponder;
 import co.cask.http.NettyHttpService;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableSet;
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.twill.common.Cancellable;
 import org.apache.twill.discovery.Discoverable;
 import org.apache.twill.discovery.DiscoveryService;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.handler.codec.http.HttpRequest;
-import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,11 +71,11 @@ public class ServerResource extends ExternalResource {
     NettyRouterPipelineTest.GATEWAY_SERVER.clearNumRequests();
 
     NettyHttpService.Builder builder = NettyHttpService.builder(ServerResource.class.getName());
-    builder.addHttpHandlers(ImmutableSet.of(new ServerHandler()));
+    builder.setHttpHandlers(new ServerHandler());
     builder.setHost(hostname);
     builder.setPort(0);
     httpService = builder.build();
-    httpService.startAndWait();
+    httpService.start();
 
     registerServer();
 
@@ -85,7 +84,11 @@ public class ServerResource extends ExternalResource {
 
   @Override
   protected void after() {
-    httpService.stopAndWait();
+    try {
+      httpService.stop();
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   public int getNumRequests() {
@@ -132,18 +135,17 @@ public class ServerResource extends ExternalResource {
 
     @POST
     @Path("/v1/upload")
-    public void upload(HttpRequest request, final HttpResponder responder) throws InterruptedException, IOException {
+    public void upload(FullHttpRequest request, HttpResponder responder) throws InterruptedException, IOException {
 
-      ChannelBuffer content = request.getContent();
+      ByteBuf content = request.content();
 
       int readableBytes;
       int bytesRead = 0;
-      ChunkResponder chunkResponder = responder.sendChunkStart(HttpResponseStatus.OK,
-                                                               ImmutableMultimap.<String, String>of());
+      ChunkResponder chunkResponder = responder.sendChunkStart(HttpResponseStatus.OK);
       while ((readableBytes = content.readableBytes()) > 0) {
         int read = Math.min(readableBytes, CHUNK_SIZE);
         bytesRead += read;
-        chunkResponder.sendChunk(content.readSlice(read));
+        chunkResponder.sendChunk(content.readRetainedSlice(read));
         //TimeUnit.MILLISECONDS.sleep(RANDOM.nextInt(1));
       }
       chunkResponder.close();
@@ -156,16 +158,17 @@ public class ServerResource extends ExternalResource {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         int count = 0;
         @Override
-        public void chunk(ChannelBuffer request, HttpResponder responder) {
+        public void chunk(ByteBuf request, HttpResponder responder) {
           count += request.readableBytes();
-          if (request.readableBytes() > 0) {
+          try {
+            request.readBytes(outputStream, request.readableBytes());
+          } catch (IOException e) {
+            throw new RuntimeException(e);
           }
-          outputStream.write(request.array(), 0, request.readableBytes());
         }
 
         @Override
         public void finished(HttpResponder responder) {
-
           if (Bytes.compareTo(expectedJarBytes, outputStream.toByteArray()) == 0) {
             responder.sendStatus(HttpResponseStatus.OK);
             return;

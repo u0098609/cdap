@@ -19,7 +19,7 @@ package co.cask.cdap.gateway.router;
 import co.cask.cdap.common.logging.AuditLogContent;
 import co.cask.cdap.gateway.handlers.util.AbstractAppFabricHttpHandler;
 import com.google.common.collect.ImmutableList;
-import org.jboss.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpMethod;
 import org.junit.Assert;
 import org.junit.Test;
 

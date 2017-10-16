@@ -19,15 +19,13 @@ package co.cask.cdap.gateway.router;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.discovery.ResolvingDiscoverable;
 import co.cask.http.AbstractHttpHandler;
+import co.cask.http.ChannelPipelineModifier;
 import co.cask.http.ChunkResponder;
 import co.cask.http.HttpResponder;
 import co.cask.http.NettyHttpService;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractIdleService;
@@ -39,6 +37,14 @@ import com.ning.http.client.Request;
 import com.ning.http.client.RequestBuilder;
 import com.ning.http.client.Response;
 import com.ning.http.client.providers.netty.NettyAsyncHttpProvider;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpHeaderValues;
+import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.http.Header;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -49,14 +55,6 @@ import org.apache.twill.discovery.Discoverable;
 import org.apache.twill.discovery.DiscoveryService;
 import org.apache.twill.discovery.DiscoveryServiceClient;
 import org.apache.twill.discovery.InMemoryDiscoveryService;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.ChannelPipeline;
-import org.jboss.netty.channel.ChannelStateEvent;
-import org.jboss.netty.channel.SimpleChannelHandler;
-import org.jboss.netty.handler.codec.http.HttpHeaders;
-import org.jboss.netty.handler.codec.http.HttpRequest;
-import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -79,7 +77,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nullable;
 import javax.net.SocketFactory;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -177,26 +174,24 @@ public abstract class NettyRouterTestBase {
       final Request request = new RequestBuilder("GET")
         .setUrl(resolveURI(DEFAULT_SERVICE, String.format("%s/%s-%d", "/v1/echo", "async", i)))
         .build();
-      asyncHttpClient.executeRequest(request,
-                                     new AsyncCompletionHandler<Void>() {
-                                       @Override
-                                       public Void onCompleted(Response response) throws Exception {
-                                         latch.countDown();
-                                         Assert.assertEquals(HttpResponseStatus.OK.getCode(),
-                                                             response.getStatusCode());
-                                         String responseBody = response.getResponseBody();
-                                         LOG.trace("Got response {}", responseBody);
-                                         Assert.assertEquals("async-" + elem, responseBody);
-                                         numSuccessfulRequests.incrementAndGet();
-                                         return null;
-                                       }
+      asyncHttpClient.executeRequest(request, new AsyncCompletionHandler<Void>() {
+        @Override
+        public Void onCompleted(Response response) throws Exception {
+          latch.countDown();
+          Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusCode());
+          String responseBody = response.getResponseBody();
+          LOG.trace("Got response {}", responseBody);
+          Assert.assertEquals("async-" + elem, responseBody);
+          numSuccessfulRequests.incrementAndGet();
+          return null;
+        }
 
-                                       @Override
-                                       public void onThrowable(Throwable t) {
-                                         LOG.error("Got exception while posting {}", elem, t);
-                                         latch.countDown();
-                                       }
-                                     });
+        @Override
+        public void onThrowable(Throwable t) {
+          LOG.error("Got exception while posting {}", elem, t);
+          latch.countDown();
+        }
+     });
 
       // Sleep so as not to overrun the server.
       TimeUnit.MILLISECONDS.sleep(1);
@@ -245,7 +240,7 @@ public abstract class NettyRouterTestBase {
   public void testHostForward() throws Exception {
     // Test defaultService
     HttpResponse response = get(resolveURI(DEFAULT_SERVICE, String.format("%s/%s", "/v1/ping", "sync")));
-    Assert.assertEquals(HttpResponseStatus.OK.getCode(), response.getStatusLine().getStatusCode());
+    Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusLine().getStatusCode());
     Assert.assertEquals(defaultServiceSupplier.get(), EntityUtils.toString(response.getEntity()));
   }
 
@@ -299,8 +294,8 @@ public abstract class NettyRouterTestBase {
     for (int i = 0; i < times; i++) {
       HttpURLConnection urlConn = openURL(urls[i % urls.length]);
       try {
-        urlConn.setRequestProperty(HttpHeaders.Names.CONNECTION,
-                                   keepAlive ? HttpHeaders.Values.KEEP_ALIVE : HttpHeaders.Values.CLOSE);
+        urlConn.setRequestProperty(HttpHeaderNames.CONNECTION.toString(),
+                                   (keepAlive ? HttpHeaderValues.KEEP_ALIVE : HttpHeaderValues.CLOSE).toString());
         Assert.assertEquals(HttpURLConnection.HTTP_OK, urlConn.getResponseCode());
       } finally {
         keepAlive = !keepAlive;
@@ -427,7 +422,7 @@ public abstract class NettyRouterTestBase {
       LOG.trace("Sending request " + i);
       HttpResponse response = get(resolveURI(Constants.Router.GATEWAY_DISCOVERY_NAME,
                                              String.format("%s/%s-%d", "/v1/ping", "sync", i)));
-      Assert.assertEquals(HttpResponseStatus.OK.getCode(), response.getStatusLine().getStatusCode());
+      Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusLine().getStatusCode());
     }
   }
 
@@ -435,7 +430,7 @@ public abstract class NettyRouterTestBase {
     for (int i = 0; i < 25; ++i) {
       LOG.trace("Sending request " + i);
       HttpResponse response = get(resolveURI(DEFAULT_SERVICE, String.format("%s/%s-%d", "/v1/ping", "sync", i)));
-      Assert.assertEquals(HttpResponseStatus.SERVICE_UNAVAILABLE.getCode(), response.getStatusLine().getStatusCode());
+      Assert.assertEquals(HttpResponseStatus.SERVICE_UNAVAILABLE.code(), response.getStatusLine().getStatusCode());
     }
   }
 
@@ -507,33 +502,31 @@ public abstract class NettyRouterTestBase {
     }
 
     @Override
-    protected void startUp() {
+    protected void startUp() throws Exception {
       NettyHttpService.Builder builder = NettyHttpService.builder(ServerService.class.getName());
-      builder.addHttpHandlers(ImmutableSet.of(new ServerHandler()));
+      builder.setHttpHandlers(new ServerHandler());
       builder.setHost(hostname);
       builder.setPort(0);
-      builder.modifyChannelPipeline(new Function<ChannelPipeline, ChannelPipeline>() {
-        @Nullable
+      builder.setChannelPipelineModifier(new ChannelPipelineModifier() {
         @Override
-        public ChannelPipeline apply(ChannelPipeline input) {
-          input.addLast("connection-counter", new SimpleChannelHandler() {
+        public void modify(ChannelPipeline pipeline) {
+          pipeline.addLast("connection-counter", new ChannelInboundHandlerAdapter() {
             @Override
-            public void channelOpen(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
+            public void channelActive(io.netty.channel.ChannelHandlerContext ctx) throws Exception {
               numConnectionsOpened.incrementAndGet();
-              super.channelOpen(ctx, e);
+              super.channelActive(ctx);
             }
 
             @Override
-            public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
+            public void channelInactive(io.netty.channel.ChannelHandlerContext ctx) throws Exception {
               numConnectionsClosed.incrementAndGet();
-              super.channelClosed(ctx, e);
+              super.channelInactive(ctx);
             }
           });
-          return input;
         }
       });
       httpService = builder.build();
-      httpService.startAndWait();
+      httpService.start();
 
       registerServer();
 
@@ -541,9 +534,9 @@ public abstract class NettyRouterTestBase {
     }
 
     @Override
-    protected void shutDown() {
+    protected void shutDown() throws Exception {
       cancelDiscovery.cancel();
-      httpService.stopAndWait();
+      httpService.stop();
     }
 
     public int getNumRequests() {
@@ -654,15 +647,14 @@ public abstract class NettyRouterTestBase {
 
       @POST
       @Path("/v1/upload")
-      public void upload(HttpRequest request, HttpResponder responder) throws IOException {
-        ChannelBuffer content = request.getContent();
+      public void upload(FullHttpRequest request, HttpResponder responder) throws IOException {
+        ByteBuf content = request.content();
 
         int readableBytes;
-        ChunkResponder chunkResponder = responder.sendChunkStart(HttpResponseStatus.OK,
-                                                                 ImmutableMultimap.<String, String>of());
+        ChunkResponder chunkResponder = responder.sendChunkStart(HttpResponseStatus.OK);
         while ((readableBytes = content.readableBytes()) > 0) {
           int read = Math.min(readableBytes, CHUNK_SIZE);
-          chunkResponder.sendChunk(content.readSlice(read));
+          chunkResponder.sendChunk(content.readRetainedSlice(read));
           //TimeUnit.MILLISECONDS.sleep(RANDOM.nextInt(1));
         }
         chunkResponder.close();
