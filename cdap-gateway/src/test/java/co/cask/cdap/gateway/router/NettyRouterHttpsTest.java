@@ -29,6 +29,7 @@ import com.google.common.collect.Maps;
 import com.google.common.net.InetAddresses;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import org.apache.http.conn.ClientConnectionManager;
 import org.apache.http.conn.scheme.Scheme;
 import org.apache.http.conn.scheme.SchemeRegistry;
@@ -75,28 +76,10 @@ public class NettyRouterHttpsTest extends NettyRouterTestBase {
 
   @Override
   protected DefaultHttpClient getHTTPClient() throws Exception {
-    SSLContext sslContext = SSLContext.getInstance("SSL");
+    SSLContext sslContext = SSLContext.getInstance(SSLSocketFactory.TLS);
 
     // set up a TrustManager that trusts everything
-    sslContext.init(null, new TrustManager[] { new X509TrustManager() {
-      @Override
-      public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-        return null;
-      }
-
-      @Override
-      public void checkClientTrusted(java.security.cert.X509Certificate[] x509Certificates, String s)
-        throws CertificateException {
-        //
-      }
-
-      @Override
-      public void checkServerTrusted(java.security.cert.X509Certificate[] x509Certificates, String s)
-        throws CertificateException {
-        //
-      }
-
-    } }, new SecureRandom());
+    sslContext.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), new SecureRandom());
 
     SSLSocketFactory sf = new SSLSocketFactory(sslContext);
     Scheme httpsScheme = new Scheme("https", 10101, sf);

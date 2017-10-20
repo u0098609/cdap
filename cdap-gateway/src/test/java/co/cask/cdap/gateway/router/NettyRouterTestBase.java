@@ -23,8 +23,6 @@ import co.cask.http.ChannelPipelineModifier;
 import co.cask.http.ChunkResponder;
 import co.cask.http.HttpResponder;
 import co.cask.http.NettyHttpService;
-import com.google.common.base.Charsets;
-import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -38,6 +36,7 @@ import com.ning.http.client.RequestBuilder;
 import com.ning.http.client.Response;
 import com.ning.http.client.providers.netty.NettyAsyncHttpProvider;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.http.FullHttpRequest;
@@ -62,9 +61,11 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.HttpURLConnection;
@@ -72,6 +73,7 @@ import java.net.Socket;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
@@ -310,6 +312,7 @@ public abstract class NettyRouterTestBase {
   // disconnected)
   @Test(timeout = 10000)
   public void testConnectionIdleTimeout() throws Exception {
+    // Only use server1
     defaultServer2.cancelRegistration();
 
     String path = "/v2/ping";
@@ -320,44 +323,53 @@ public abstract class NettyRouterTestBase {
 
     // make a request
     String firstLine = makeRequest(uri, out, inputStream);
-    Assert.assertEquals("HTTP/1.1 200 OK\r", firstLine);
+    Assert.assertEquals("HTTP/1.1 200 OK", firstLine);
 
     // sleep for 500 ms below the configured idle timeout; the connection on server side should not get closed by then
+    // Hence it should be reusing the same server side connection
     TimeUnit.MILLISECONDS.sleep(TimeUnit.SECONDS.toMillis(CONNECTION_IDLE_TIMEOUT_SECS) - 500);
     firstLine = makeRequest(uri, out, inputStream);
-    Assert.assertEquals("HTTP/1.1 200 OK\r", firstLine);
+    Assert.assertEquals("HTTP/1.1 200 OK", firstLine);
 
     // sleep for 500 ms over the configured idle timeout; the connection on server side should get closed by then
+    // Hence it should be create a new server side connection
     TimeUnit.MILLISECONDS.sleep(TimeUnit.SECONDS.toMillis(CONNECTION_IDLE_TIMEOUT_SECS) + 500);
     // Due to timeout the client connection will be closed, and hence this request should not go to the server
-    makeRequest(uri, out, inputStream);
+    firstLine = makeRequest(uri, out, inputStream);
+    Assert.assertEquals("HTTP/1.1 200 OK", firstLine);
 
     // assert that the connection is closed on the server side
-    Assert.assertEquals(2, defaultServer1.getNumRequests() + defaultServer2.getNumRequests());
-    Assert.assertEquals(1, defaultServer1.getNumConnectionsOpened() + defaultServer2.getNumConnectionsOpened());
-    Assert.assertEquals(1, defaultServer1.getNumConnectionsClosed() + defaultServer2.getNumConnectionsClosed());
+    Assert.assertEquals(3, defaultServer1.getNumRequests());
+    Assert.assertEquals(2, defaultServer1.getNumConnectionsOpened());
+    Assert.assertEquals(1, defaultServer1.getNumConnectionsClosed());
   }
 
   private String makeRequest(URI uri, PrintWriter out, InputStream inputStream) throws IOException {
-
     //Send request
     out.print("GET " + uri.getPath() + " HTTP/1.1\r\n" +
                 "Host: " + uri.getHost() + "\r\n" +
                 "Connection: keep-alive\r\n\r\n");
     out.flush();
 
-    byte[] buffer = new byte[1024];
-    int length = 0;
-    for (int i = 0; i < 20; ++i) {
-      int read = inputStream.read(buffer, length, 1024 - length);
-      length += read < 0 ? 0 : read;
-      // Output returned is 108 bytes in length for /v2/ping
-      if (length >= 108) {
-        break;
+    BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+
+    // Read the first line and find
+    String line = reader.readLine();
+    String firstLine = line;
+    int contentLength = 0;
+    while (!line.isEmpty()) {
+      if (line.toLowerCase().startsWith(HttpHeaderNames.CONTENT_LENGTH.toString())) {
+        contentLength = Integer.parseInt(line.split(":", 2)[1].trim());
       }
+      line = reader.readLine();
     }
-    // Return only first line of the response
-    return Iterables.getFirst(Splitter.on("\n").split(new String(buffer, Charsets.UTF_8.name())), "");
+
+    // Read and throw away the body
+    for (int i = 0; i < contentLength; i++) {
+      reader.read();
+    }
+
+    return firstLine;
   }
 
   @Test
@@ -512,13 +524,13 @@ public abstract class NettyRouterTestBase {
         public void modify(ChannelPipeline pipeline) {
           pipeline.addLast("connection-counter", new ChannelInboundHandlerAdapter() {
             @Override
-            public void channelActive(io.netty.channel.ChannelHandlerContext ctx) throws Exception {
+            public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
               numConnectionsOpened.incrementAndGet();
               super.channelActive(ctx);
             }
 
             @Override
-            public void channelInactive(io.netty.channel.ChannelHandlerContext ctx) throws Exception {
+            public void channelUnregistered(io.netty.channel.ChannelHandlerContext ctx) throws Exception {
               numConnectionsClosed.incrementAndGet();
               super.channelInactive(ctx);
             }

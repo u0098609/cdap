@@ -16,67 +16,61 @@
 
 package co.cask.cdap.gateway.router.handlers;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.ChannelStateEvent;
-import org.jboss.netty.channel.Channels;
-import org.jboss.netty.channel.ExceptionEvent;
-import org.jboss.netty.channel.MessageEvent;
-import org.jboss.netty.channel.SimpleChannelUpstreamHandler;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.http.LastHttpContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.nio.channels.ClosedChannelException;
 
 /**
  * Handles requests to and from a discoverable endpoint.
  */
-public class OutboundHandler extends SimpleChannelUpstreamHandler {
+public class OutboundHandler extends ChannelDuplexHandler {
   private static final Logger LOG = LoggerFactory.getLogger(OutboundHandler.class);
 
   private final Channel inboundChannel;
+  private boolean requestInProgress;
 
   public OutboundHandler(Channel inboundChannel) {
     this.inboundChannel = inboundChannel;
   }
 
   @Override
-  public void messageReceived(ChannelHandlerContext ctx, MessageEvent event) throws Exception {
-    // write the channel buffer to inbound channel
-    ChannelBuffer wrappedMessage = ChannelBuffers.wrappedBuffer((ChannelBuffer) event.getMessage());
-    Channels.write(inboundChannel, wrappedMessage);
-    super.messageReceived(ctx, event);
-  }
-
-  @Override
-  public void channelInterestChanged(ChannelHandlerContext ctx, final ChannelStateEvent e) throws Exception {
-    inboundChannel.getPipeline().execute(new Runnable() {
-      @Override
-      public void run() {
-        // If outboundChannel is not saturated anymore, continue accepting
-        // the incoming traffic from the inboundChannel.
-        if (e.getChannel().isWritable()) {
-          LOG.trace("Setting inboundChannel readable.");
-          inboundChannel.setReadable(true);
-        } else {
-          // If outboundChannel is saturated, do not read inboundChannel
-          LOG.trace("Setting inboundChannel non-readable.");
-          inboundChannel.setReadable(false);
-        }
-      }
-    });
-  }
-
-  @Override
-  public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
-    Throwable cause = e.getCause();
-    if (cause instanceof ClosedChannelException) {
-      LOG.trace("Unexpected connection close");
-    } else {
-      LOG.error("Got exception {}", ctx.getChannel(), cause);
-      HttpRequestHandler.closeOnFlush(e.getChannel());
+  public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    inboundChannel.writeAndFlush(msg);
+    if (msg instanceof LastHttpContent) {
+      requestInProgress = false;
     }
+  }
+
+  @Override
+  public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+    requestInProgress = true;
+    ctx.write(msg, promise);
+  }
+
+  @Override
+  public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+    if (requestInProgress) {
+      final Channel channel = ctx.channel();
+      ctx.executor().execute(new Runnable() {
+        @Override
+        public void run() {
+          // If outboundChannel is not saturated anymore, continue accepting
+          // the incoming traffic from the inboundChannel.
+          if (channel.isWritable()) {
+            LOG.trace("Setting inboundChannel readable.");
+            inboundChannel.config().setAutoRead(true);
+          } else {
+            // If outboundChannel is saturated, do not read inboundChannel
+            LOG.trace("Setting inboundChannel non-readable.");
+            inboundChannel.config().setAutoRead(false);
+          }
+        }
+      });
+    }
+    ctx.fireChannelWritabilityChanged();
   }
 }

@@ -16,15 +16,13 @@
 
 package co.cask.cdap.gateway.router.handlers;
 
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.MessageEvent;
-import org.jboss.netty.handler.codec.http.HttpChunk;
-import org.jboss.netty.handler.codec.http.HttpRequest;
-import org.jboss.netty.handler.codec.http.HttpResponse;
-import org.jboss.netty.handler.timeout.IdleState;
-import org.jboss.netty.handler.timeout.IdleStateAwareChannelHandler;
-import org.jboss.netty.handler.timeout.IdleStateEvent;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,52 +30,42 @@ import org.slf4j.LoggerFactory;
  * Handles states when a channel has been idle for a configured time interval, by closing the channel if an
  * HTTP Request is not in progress.
  */
-public class IdleEventProcessor extends IdleStateAwareChannelHandler {
+public class IdleEventProcessor extends IdleStateHandler {
+
   private static final Logger LOG = LoggerFactory.getLogger(IdleEventProcessor.class);
   private boolean requestInProgress;
 
+  public IdleEventProcessor(int allIdleTimeSeconds) {
+    super(0, 0, allIdleTimeSeconds);
+  }
+
   @Override
   public void channelIdle(ChannelHandlerContext ctx, IdleStateEvent e) throws Exception {
-    if (IdleState.ALL_IDLE == e.getState()) {
+    if (IdleState.ALL_IDLE == e.state()) {
       if (requestInProgress) {
         LOG.trace("Request is in progress, so not closing channel.");
       } else {
         // No data has been sent or received for a while. Close channel.
-        Channel channel = ctx.getChannel();
+        Channel channel = ctx.channel();
         channel.close();
         LOG.trace("No data has been sent or received for channel '{}' for more than the configured idle timeout. " +
                     "Closing the channel. Local Address: {}, Remote Address: {}",
-                  channel, channel.getLocalAddress(), channel.getRemoteAddress());
+                  channel, channel.localAddress(), channel.remoteAddress());
       }
     }
   }
 
   @Override
-  public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)
-    throws Exception {
-    Object message = e.getMessage();
-    if (message instanceof HttpResponse) {
-      HttpResponse response = (HttpResponse) message;
-      if (!response.isChunked()) {
-        requestInProgress = false;
-      }
-    } else if (message instanceof HttpChunk) {
-      HttpChunk chunk = (HttpChunk) message;
-
-      if (chunk.isLast()) {
-        requestInProgress = false;
-      }
+  public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    if (msg instanceof LastHttpContent) {
+      requestInProgress = false;
     }
-
-    ctx.sendUpstream(e);
+    super.channelRead(ctx, msg);
   }
 
   @Override
-  public void writeRequested(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
-    Object message = e.getMessage();
-    if (message instanceof HttpRequest || message instanceof HttpChunk) {
-      requestInProgress = true;
-    }
-    ctx.sendDownstream(e);
+  public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+    requestInProgress = true;
+    super.write(ctx, msg, promise);
   }
 }
