@@ -39,10 +39,15 @@ public class OutboundHandler extends ChannelDuplexHandler {
 
   @Override
   public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-    inboundChannel.writeAndFlush(msg);
+    inboundChannel.write(msg);
     if (msg instanceof LastHttpContent) {
       requestInProgress = false;
     }
+  }
+
+  @Override
+  public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+    inboundChannel.flush();
   }
 
   @Override
@@ -72,5 +77,14 @@ public class OutboundHandler extends ChannelDuplexHandler {
       });
     }
     ctx.fireChannelWritabilityChanged();
+  }
+
+  @Override
+  public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+    // If the request is in progress and the outbound connection get dropped, close the inbound connection as well
+    if (requestInProgress) {
+      inboundChannel.close();
+    }
+    ctx.fireChannelUnregistered();
   }
 }

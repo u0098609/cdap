@@ -23,10 +23,12 @@ import co.cask.http.ChannelPipelineModifier;
 import co.cask.http.ChunkResponder;
 import co.cask.http.HttpResponder;
 import co.cask.http.NettyHttpService;
-import com.google.common.base.Supplier;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractIdleService;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.Service;
 import com.ning.http.client.AsyncCompletionHandler;
 import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.AsyncHttpClientConfig;
@@ -50,10 +52,12 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.apache.twill.common.Cancellable;
+import org.apache.twill.common.Threads;
 import org.apache.twill.discovery.Discoverable;
 import org.apache.twill.discovery.DiscoveryService;
 import org.apache.twill.discovery.DiscoveryServiceClient;
 import org.apache.twill.discovery.InMemoryDiscoveryService;
+import org.apache.twill.discovery.ServiceDiscovered;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -74,6 +78,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
@@ -89,29 +94,22 @@ import javax.ws.rs.PathParam;
  * Tests Netty Router.
  */
 public abstract class NettyRouterTestBase {
-  protected static final String HOSTNAME = "127.0.0.1";
-  protected static final DiscoveryService DISCOVERY_SERVICE = new InMemoryDiscoveryService();
-  protected static final String DEFAULT_SERVICE = Constants.Router.GATEWAY_DISCOVERY_NAME;
-  protected static final String APP_FABRIC_SERVICE = Constants.Service.APP_FABRIC_HTTP;
-  protected static final int CONNECTION_IDLE_TIMEOUT_SECS = 2;
-
+  static final int CONNECTION_IDLE_TIMEOUT_SECS = 2;
   private static final Logger LOG = LoggerFactory.getLogger(NettyRouterTestBase.class);
+
+  private static final String HOSTNAME = "127.0.0.1";
+  private static final String DEFAULT_SERVICE = Constants.Router.GATEWAY_DISCOVERY_NAME;
+  private static final String APP_FABRIC_SERVICE = Constants.Service.APP_FABRIC_HTTP;
   private static final int MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
   private static final int CHUNK_SIZE = 1024 * 1024;      // NOTE: MAX_UPLOAD_BYTES % CHUNK_SIZE == 0
 
-  private final Supplier<String> defaultServiceSupplier = new Supplier<String>() {
-    @Override
-    public String get() {
-      return APP_FABRIC_SERVICE;
-    }
-  };
+  private final DiscoveryService discoveryService = new InMemoryDiscoveryService();
+  private final RouterService routerService = createRouterService(HOSTNAME, discoveryService);
+  private final ServerService defaultServer1 = new ServerService(HOSTNAME, discoveryService, APP_FABRIC_SERVICE);
+  private final ServerService defaultServer2 = new ServerService(HOSTNAME, discoveryService, APP_FABRIC_SERVICE);
+  private final List<ServerService> allServers = Lists.newArrayList(defaultServer1, defaultServer2);
 
-  public final RouterService routerService = createRouterService();
-  public final ServerService defaultServer1 = new ServerService(HOSTNAME, DISCOVERY_SERVICE, defaultServiceSupplier);
-  public final ServerService defaultServer2 = new ServerService(HOSTNAME, DISCOVERY_SERVICE, defaultServiceSupplier);
-  public final List<ServerService> allServers = Lists.newArrayList(defaultServer1, defaultServer2);
-
-  protected abstract RouterService createRouterService();
+  protected abstract RouterService createRouterService(String hostname, DiscoveryService discoveryService);
   protected abstract String getProtocol();
   protected abstract DefaultHttpClient getHTTPClient() throws Exception;
   protected abstract SocketFactory getSocketFactory() throws Exception;
@@ -131,26 +129,36 @@ public abstract class NettyRouterTestBase {
 
   @Before
   public void startUp() throws Exception {
-    routerService.startAndWait();
+    List<ListenableFuture<Service.State>> futures = new ArrayList<>();
+    futures.add(routerService.start());
     for (ServerService server : allServers) {
-      server.clearState();
-      server.startAndWait();
+      futures.add(server.start());
     }
+    Futures.allAsList(futures).get();
 
     // Wait for both servers of defaultService to be registered
-    Iterable<Discoverable> discoverables = ((DiscoveryServiceClient) DISCOVERY_SERVICE).discover(
-      defaultServiceSupplier.get());
-    for (int i = 0; i < 50 && Iterables.size(discoverables) != 2; ++i) {
-      TimeUnit.MILLISECONDS.sleep(50);
-    }
+    ServiceDiscovered discover = ((DiscoveryServiceClient) discoveryService).discover(APP_FABRIC_SERVICE);
+    final CountDownLatch latch = new CountDownLatch(1);
+    Cancellable cancellable = discover.watchChanges(new ServiceDiscovered.ChangeListener() {
+      @Override
+      public void onChange(ServiceDiscovered serviceDiscovered) {
+        if (Iterables.size(serviceDiscovered) == allServers.size()) {
+          latch.countDown();
+        }
+      }
+    }, Threads.SAME_THREAD_EXECUTOR);
+    Assert.assertTrue(latch.await(10, TimeUnit.SECONDS));
+    cancellable.cancel();
   }
 
   @After
-  public void tearDown() {
+  public void tearDown() throws Exception {
+    List<ListenableFuture<Service.State>> futures = new ArrayList<>();
     for (ServerService server : allServers) {
-      server.stopAndWait();
+      futures.add(server.stop());
     }
-    routerService.stopAndWait();
+    futures.add(routerService.stop());
+    Futures.successfulAsList(futures).get();
   }
 
   @Test
@@ -182,7 +190,7 @@ public abstract class NettyRouterTestBase {
           latch.countDown();
           Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusCode());
           String responseBody = response.getResponseBody();
-          LOG.trace("Got response {}", responseBody);
+          LOG.debug("Got response {}", responseBody);
           Assert.assertEquals("async-" + elem, responseBody);
           numSuccessfulRequests.incrementAndGet();
           return null;
@@ -243,7 +251,7 @@ public abstract class NettyRouterTestBase {
     // Test defaultService
     HttpResponse response = get(resolveURI(DEFAULT_SERVICE, String.format("%s/%s", "/v1/ping", "sync")));
     Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusLine().getStatusCode());
-    Assert.assertEquals(defaultServiceSupplier.get(), EntityUtils.toString(response.getEntity()));
+    Assert.assertEquals(APP_FABRIC_SERVICE, EntityUtils.toString(response.getEntity()));
   }
 
   @Test
@@ -431,7 +439,7 @@ public abstract class NettyRouterTestBase {
 
   private void testSync(int numRequests) throws Exception {
     for (int i = 0; i < numRequests; ++i) {
-      LOG.trace("Sending request " + i);
+      LOG.debug("Sending sync request " + i);
       HttpResponse response = get(resolveURI(Constants.Router.GATEWAY_DISCOVERY_NAME,
                                              String.format("%s/%s-%d", "/v1/ping", "sync", i)));
       Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusLine().getStatusCode());
@@ -440,7 +448,7 @@ public abstract class NettyRouterTestBase {
 
   private void testSyncServiceUnavailable() throws Exception {
     for (int i = 0; i < 25; ++i) {
-      LOG.trace("Sending request " + i);
+      LOG.trace("Sending sync unavailable request " + i);
       HttpResponse response = get(resolveURI(DEFAULT_SERVICE, String.format("%s/%s-%d", "/v1/ping", "sync", i)));
       Assert.assertEquals(HttpResponseStatus.SERVICE_UNAVAILABLE.code(), response.getStatusLine().getStatusCode());
     }
@@ -499,7 +507,7 @@ public abstract class NettyRouterTestBase {
 
     private final String hostname;
     private final DiscoveryService discoveryService;
-    private final Supplier<String> serviceNameSupplier;
+    private final String serviceName;
     private final AtomicInteger numRequests = new AtomicInteger(0);
     private final AtomicInteger numConnectionsOpened = new AtomicInteger(0);
     private final AtomicInteger numConnectionsClosed = new AtomicInteger(0);
@@ -507,10 +515,10 @@ public abstract class NettyRouterTestBase {
     private NettyHttpService httpService;
     private Cancellable cancelDiscovery;
 
-    private ServerService(String hostname, DiscoveryService discoveryService, Supplier<String> serviceNameSupplier) {
+    private ServerService(String hostname, DiscoveryService discoveryService, String serviceName) {
       this.hostname = hostname;
       this.discoveryService = discoveryService;
-      this.serviceNameSupplier = serviceNameSupplier;
+      this.serviceName = serviceName;
     }
 
     @Override
@@ -563,21 +571,16 @@ public abstract class NettyRouterTestBase {
       return numConnectionsClosed.get();
     }
 
-    public void clearState() {
-      numRequests.set(0);
-      numConnectionsOpened.set(0);
-      numConnectionsClosed.set(0);
-    }
 
     public void registerServer() {
       // Register services of test server
-      log.info("Registering service {}", serviceNameSupplier.get());
+      log.info("Registering service {}", serviceName);
       cancelDiscovery = discoveryService.register(
-        ResolvingDiscoverable.of(new Discoverable(serviceNameSupplier.get(), httpService.getBindAddress())));
+        ResolvingDiscoverable.of(new Discoverable(serviceName, httpService.getBindAddress())));
     }
 
     public void cancelRegistration() {
-      log.info("Cancelling discovery registration of service {}", serviceNameSupplier.get());
+      log.info("Cancelling discovery registration of service {}", serviceName);
       cancelDiscovery.cancel();
     }
 
@@ -603,7 +606,7 @@ public abstract class NettyRouterTestBase {
         numRequests.incrementAndGet();
         log.trace("Got text {}", text);
 
-        responder.sendString(HttpResponseStatus.OK, serviceNameSupplier.get());
+        responder.sendString(HttpResponseStatus.OK, serviceName);
       }
 
       @GET
@@ -613,7 +616,7 @@ public abstract class NettyRouterTestBase {
         numRequests.incrementAndGet();
         log.trace("Got text {}", text);
 
-        responder.sendString(HttpResponseStatus.OK, serviceNameSupplier.get());
+        responder.sendString(HttpResponseStatus.OK, serviceName);
       }
 
       @GET
@@ -623,7 +626,7 @@ public abstract class NettyRouterTestBase {
         numRequests.incrementAndGet();
         log.trace("Got text {}", text);
 
-        responder.sendString(HttpResponseStatus.OK, serviceNameSupplier.get());
+        responder.sendString(HttpResponseStatus.OK, serviceName);
       }
 
       @GET
@@ -631,7 +634,7 @@ public abstract class NettyRouterTestBase {
       public void gateway(@SuppressWarnings("UnusedParameters") HttpRequest request, final HttpResponder responder) {
         numRequests.incrementAndGet();
 
-        responder.sendString(HttpResponseStatus.OK, serviceNameSupplier.get());
+        responder.sendString(HttpResponseStatus.OK, serviceName);
       }
 
       @GET

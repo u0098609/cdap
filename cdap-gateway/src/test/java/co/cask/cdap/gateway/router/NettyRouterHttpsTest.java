@@ -58,8 +58,8 @@ import javax.net.ssl.X509TrustManager;
 public class NettyRouterHttpsTest extends NettyRouterTestBase {
 
   @Override
-  protected RouterService createRouterService() {
-    return new HttpsRouterService(HOSTNAME, DISCOVERY_SERVICE);
+  protected RouterService createRouterService(String hostname, DiscoveryService discoveryService) {
+    return new HttpsRouterService(hostname, discoveryService);
   }
 
   @Override
