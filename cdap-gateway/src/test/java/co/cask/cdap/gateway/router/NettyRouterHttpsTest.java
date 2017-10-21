@@ -33,6 +33,7 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import org.apache.http.conn.ClientConnectionManager;
 import org.apache.http.conn.scheme.Scheme;
 import org.apache.http.conn.scheme.SchemeRegistry;
+import org.apache.http.conn.ssl.AllowAllHostnameVerifier;
 import org.apache.http.conn.ssl.SSLSocketFactory;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.impl.conn.BasicClientConnectionManager;
@@ -43,14 +44,10 @@ import org.junit.Assert;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.SecureRandom;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.util.Map;
 import javax.net.SocketFactory;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 /**
  * Tests Netty Router running on HTTPS.
@@ -76,12 +73,12 @@ public class NettyRouterHttpsTest extends NettyRouterTestBase {
 
   @Override
   protected DefaultHttpClient getHTTPClient() throws Exception {
-    SSLContext sslContext = SSLContext.getInstance(SSLSocketFactory.TLS);
+    SSLContext sslContext = SSLContext.getInstance("TLS");
 
     // set up a TrustManager that trusts everything
     sslContext.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), new SecureRandom());
 
-    SSLSocketFactory sf = new SSLSocketFactory(sslContext);
+    SSLSocketFactory sf = new SSLSocketFactory(sslContext, new AllowAllHostnameVerifier());
     Scheme httpsScheme = new Scheme("https", 10101, sf);
     SchemeRegistry schemeRegistry = new SchemeRegistry();
     schemeRegistry.register(httpsScheme);
@@ -94,22 +91,7 @@ public class NettyRouterHttpsTest extends NettyRouterTestBase {
   @Override
   protected SocketFactory getSocketFactory() throws Exception {
     SSLContext sc = SSLContext.getInstance("TLS");
-    sc.init(null, new TrustManager[]{new X509TrustManager() {
-      @Override
-      public void checkClientTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
-
-      }
-
-      @Override
-      public void checkServerTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
-
-      }
-
-      @Override
-      public X509Certificate[] getAcceptedIssuers() {
-        return new X509Certificate[0];
-      }
-    }}, new java.security.SecureRandom());
+    sc.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), new SecureRandom());
     return sc.getSocketFactory();
   }
 

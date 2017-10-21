@@ -216,34 +216,28 @@ public abstract class NettyRouterTestBase {
 
   @Test
   public void testRouterOneServerDown() throws Exception {
-    try {
-      // Bring down defaultServer1
-      defaultServer1.cancelRegistration();
+    // Bring down defaultServer1
+    defaultServer1.cancelRegistration();
 
-      testSync(25);
-    } finally {
-      Assert.assertEquals(0, defaultServer1.getNumRequests());
-      Assert.assertTrue(defaultServer2.getNumRequests() > 0);
+    testSync(25);
+    Assert.assertEquals(0, defaultServer1.getNumRequests());
+    Assert.assertTrue(defaultServer2.getNumRequests() > 0);
 
-      defaultServer1.registerServer();
-    }
+    defaultServer1.registerServer();
   }
 
   @Test
   public void testRouterAllServersDown() throws Exception {
-    try {
-      // Bring down all servers
-      defaultServer1.cancelRegistration();
-      defaultServer2.cancelRegistration();
+    // Bring down all servers
+    defaultServer1.cancelRegistration();
+    defaultServer2.cancelRegistration();
 
-      testSyncServiceUnavailable();
-    } finally {
-      Assert.assertEquals(0, defaultServer1.getNumRequests());
-      Assert.assertEquals(0, defaultServer2.getNumRequests());
+    testSyncServiceUnavailable();
+    Assert.assertEquals(0, defaultServer1.getNumRequests());
+    Assert.assertEquals(0, defaultServer2.getNumRequests());
 
-      defaultServer1.registerServer();
-      defaultServer2.registerServer();
-    }
+    defaultServer1.registerServer();
+    defaultServer2.registerServer();
   }
 
   @Test
