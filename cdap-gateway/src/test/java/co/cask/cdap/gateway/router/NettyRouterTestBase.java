@@ -190,7 +190,7 @@ public abstract class NettyRouterTestBase {
           latch.countDown();
           Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusCode());
           String responseBody = response.getResponseBody();
-          LOG.debug("Got response {}", responseBody);
+          LOG.trace("Got response {}", responseBody);
           Assert.assertEquals("async-" + elem, responseBody);
           numSuccessfulRequests.incrementAndGet();
           return null;
@@ -308,6 +308,7 @@ public abstract class NettyRouterTestBase {
                                    (keepAlive ? HttpHeaderValues.KEEP_ALIVE : HttpHeaderValues.CLOSE).toString());
         Assert.assertEquals(HttpURLConnection.HTTP_OK, urlConn.getResponseCode());
       } finally {
+        urlConn.getInputStream().close();
         keepAlive = !keepAlive;
         urlConn.disconnect();
       }
@@ -316,9 +317,7 @@ public abstract class NettyRouterTestBase {
     Assert.assertEquals(times, defaultServer1.getNumRequests() + defaultServer2.getNumRequests());
   }
 
-  // have a timeout of 10 seconds, in case the final call to reader.read hangs (in the case that connection isn't
-  // disconnected)
-  @Test(timeout = 10000)
+  @Test
   public void testConnectionIdleTimeout() throws Exception {
     // Only use server1
     defaultServer2.cancelRegistration();
@@ -439,7 +438,7 @@ public abstract class NettyRouterTestBase {
 
   private void testSync(int numRequests) throws Exception {
     for (int i = 0; i < numRequests; ++i) {
-      LOG.debug("Sending sync request " + i);
+      LOG.trace("Sending sync request " + i);
       HttpResponse response = get(resolveURI(Constants.Router.GATEWAY_DISCOVERY_NAME,
                                              String.format("%s/%s-%d", "/v1/ping", "sync", i)));
       Assert.assertEquals(HttpResponseStatus.OK.code(), response.getStatusLine().getStatusCode());

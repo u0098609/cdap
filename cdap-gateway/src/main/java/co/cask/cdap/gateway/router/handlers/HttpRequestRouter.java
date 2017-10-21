@@ -17,10 +17,10 @@
 package co.cask.cdap.gateway.router.handlers;
 
 import co.cask.cdap.common.HandlerException;
+import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.discovery.EndpointStrategy;
 import co.cask.cdap.gateway.router.RouterServiceLookup;
-import com.google.common.collect.Queues;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
@@ -28,10 +28,15 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandler;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpClientCodec;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -41,11 +46,14 @@ import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.ReferenceCountUtil;
 import org.apache.twill.discovery.Discoverable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
+import java.io.Flushable;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -53,7 +61,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLException;
 
 /**
@@ -65,14 +73,15 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
   private static final Logger LOG = LoggerFactory.getLogger(HttpRequestRouter.class);
   private static final byte[] HTTPS_SCHEME_BYTES = Constants.Security.SSL_URI_SCHEME.getBytes();
 
-  private final Bootstrap clientBootstrap;
+  private final CConfiguration cConf;
   private final RouterServiceLookup serviceLookup;
   private final Map<Discoverable, Queue<MessageSender>> messageSenders;
   private int inflightRequests;
   private MessageSender currentMessageSender;
+  private ChannelFutureListener failureResponseListener;
 
-  public HttpRequestRouter(Bootstrap clientBootstrap, RouterServiceLookup serviceLookup) {
-    this.clientBootstrap = clientBootstrap;
+  public HttpRequestRouter(CConfiguration cConf, RouterServiceLookup serviceLookup) {
+    this.cConf = cConf;
     this.serviceLookup = serviceLookup;
     this.messageSenders = new HashMap<>();
   }
@@ -80,8 +89,8 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
   @Override
   public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
     try {
-      final ChannelPromise promise = ctx.newPromise();
       final Channel inboundChannel = ctx.channel();
+      ChannelFutureListener writeCompletedListener = getFailureResponseListener(inboundChannel);
 
       if (msg instanceof HttpRequest) {
         inflightRequests++;
@@ -95,48 +104,37 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
         // Disable read until sending of this request object is completed successfully
         // This is for handling the initial connection delay
         inboundChannel.config().setAutoRead(false);
-        promise.addListener(new ChannelFutureListener() {
+        writeCompletedListener = new ChannelFutureListener() {
           @Override
           public void operationComplete(ChannelFuture future) throws Exception {
             if (future.isSuccess()) {
               inboundChannel.config().setAutoRead(true);
+            } else {
+              getFailureResponseListener(inboundChannel).operationComplete(future);
             }
           }
-        });
-
+        };
         HttpRequest request = (HttpRequest) msg;
         currentMessageSender = getMessageSender(
           inboundChannel, getDiscoverable(request, (InetSocketAddress) inboundChannel.localAddress())
         );
       }
 
-      if (inflightRequests == 1) {
-        promise.addListener(new ChannelFutureListener() {
-          @Override
-          public void operationComplete(ChannelFuture future) throws Exception {
-            if (!future.isSuccess()) {
-              inboundChannel.writeAndFlush(createErrorResponse(future.cause()))
-                .addListener(ChannelFutureListener.CLOSE);
-            }
-          }
-        });
-
+      if (inflightRequests == 1 && currentMessageSender != null) {
         ReferenceCountUtil.retain(msg);
-        ctx.executor().execute(new Runnable() {
-          @Override
-          public void run() {
-            MessageSender sender = currentMessageSender;
-            if (sender != null) {
-              sender.send(msg, promise);
-            } else {
-              ReferenceCountUtil.release(msg);
-            }
-          }
-        });
+        currentMessageSender.send(msg, writeCompletedListener);
       }
     } finally {
       ReferenceCountUtil.release(msg);
     }
+  }
+
+  @Override
+  public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+    if (currentMessageSender != null) {
+      currentMessageSender.flush();
+    }
+    ctx.fireChannelReadComplete();
   }
 
   @Override
@@ -152,12 +150,8 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
     }
     inflightRequests = 0;
 
-    // Recycle the message sender
     if (currentMessageSender != null) {
-      Queue<MessageSender> senders = messageSenders.get(currentMessageSender.getDiscoverable());
-      if (senders != null) {
-        senders.add(currentMessageSender);
-      }
+      messageSenders.get(currentMessageSender.getDiscoverable()).add(currentMessageSender);
     }
   }
 
@@ -167,6 +161,33 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
       ? ((HandlerException) cause).createFailureResponse()
       : createErrorResponse(cause);
     ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+  }
+
+  @Override
+  public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    if (currentMessageSender != null) {
+      currentMessageSender.close();
+    }
+    for (Map.Entry<Discoverable, Queue<MessageSender>> entry : messageSenders.entrySet()) {
+      for (MessageSender sender : entry.getValue()) {
+        sender.close();
+      }
+    }
+    ctx.fireChannelInactive();
+  }
+
+  private ChannelFutureListener getFailureResponseListener(final Channel inboundChannel) {
+    if (failureResponseListener == null) {
+      failureResponseListener = new ChannelFutureListener() {
+        @Override
+        public void operationComplete(ChannelFuture future) throws Exception {
+          if (!future.isSuccess()) {
+            inboundChannel.writeAndFlush(createErrorResponse(future.cause())).addListener(ChannelFutureListener.CLOSE);
+          }
+        }
+      };
+    }
+    return failureResponseListener;
   }
 
   /**
@@ -198,20 +219,16 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
       messageSenders.put(discoverable, senders);
     }
 
-    // Keeps taking out inactive MessageSender
     MessageSender sender = senders.poll();
-    while (sender != null && !sender.isActive()) {
-      sender = senders.poll();
-    }
-    // Found an usable one, return it
+
+    // Found a MessageSender to reuse, return it
     if (sender != null) {
       LOG.trace("Reuse message sender for {}", discoverable);
       return sender;
     }
 
-    // Create new MessageSender by making a new outbound connection.
-    ChannelFuture outboundChannelFuture = clientBootstrap.connect(discoverable.getSocketAddress());
-    sender = new MessageSender(discoverable, inboundChannel, outboundChannelFuture);
+    // Create new MessageSender
+    sender = new MessageSender(cConf, inboundChannel, discoverable);
     LOG.trace("Create new message sender for {}", discoverable);
     return sender;
   }
@@ -227,7 +244,7 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
     return response;
   }
 
-  private HttpResponse createErrorResponse(Throwable cause) {
+  private static HttpResponse createErrorResponse(Throwable cause) {
     FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
                                                             HttpResponseStatus.INTERNAL_SERVER_ERROR);
     if (cause.getMessage() != null) {
@@ -237,122 +254,122 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
     return response;
   }
 
-
   /**
    * For sending messages to outbound channel while maintaining the order of messages according to
-   * the order that {@link #send(Object, ChannelPromise)} method is called.
-   *
-   * It uses a lock-free algorithm similar to the one
-   * in {@link co.cask.cdap.data.stream.service.ConcurrentStreamWriter} to do the write through the
-   * channel callback.
+   * the order that {@link #send(Object, ChannelFutureListener)} method is called.
    */
-  private static final class MessageSender {
-    private final Discoverable discoverable;
+  private static final class MessageSender implements Flushable, Closeable {
+
     private final Channel inboundChannel;
-    private final ChannelFuture outboundChannelFuture;
-    private final Queue<OutboundMessage> messages;
-    private final AtomicBoolean writer;
-    private final boolean enableSSL;
-    private final AtomicBoolean pipelineUpdated;
+    private final Discoverable discoverable;
+    private final AtomicReference<SslContext> sslContext;
+    private final Queue<OutboundMessage> pendingMessages;
+    private final Bootstrap clientBootstrap;
+    private Channel outboundChannel;
+    private boolean closed;
+    private boolean connecting;
 
-    MessageSender(Discoverable discoverable, Channel inboundChannel, ChannelFuture outboundChannelFuture) {
-      this.discoverable = discoverable;
+    private MessageSender(final CConfiguration cConf, final Channel inboundChannel, final Discoverable discoverable) {
       this.inboundChannel = inboundChannel;
-      this.outboundChannelFuture = outboundChannelFuture;
-      this.messages = Queues.newConcurrentLinkedQueue();
-      this.writer = new AtomicBoolean(false);
-      this.enableSSL = Arrays.equals(HTTPS_SCHEME_BYTES, discoverable.getPayload());
-      this.pipelineUpdated = new AtomicBoolean(false);
+      this.discoverable = discoverable;
+      this.sslContext = new AtomicReference<>();
+      this.pendingMessages = new LinkedList<>();
+
+      final ChannelFutureListener onCloseResetListener = new ChannelFutureListener() {
+        @Override
+        public void operationComplete(ChannelFuture future) throws Exception {
+          outboundChannel = null;
+          connecting = false;
+        }
+      };
+      this.clientBootstrap = new Bootstrap()
+        .group(inboundChannel.eventLoop())
+        .channel(NioSocketChannel.class)
+        .option(ChannelOption.SO_KEEPALIVE, true)
+        .handler(new ChannelInitializer<SocketChannel>() {
+          @Override
+          protected void initChannel(SocketChannel ch) throws Exception {
+            ch.closeFuture().addListener(onCloseResetListener);
+
+            ChannelPipeline pipeline = ch.pipeline();
+            if (Arrays.equals(HTTPS_SCHEME_BYTES, discoverable.getPayload())) {
+              SslContext context = sslContext.get();
+              if (context == null) {
+                context = SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE).build();
+                context = sslContext.compareAndSet(null, context) ? context : sslContext.get();
+              }
+              pipeline.addLast("ssl", context.newHandler(ch.alloc()));
+            }
+
+            pipeline.addLast("idle-state-handler",
+                             new IdleStateHandler(0, 0, cConf.getInt(Constants.Router.CONNECTION_TIMEOUT_SECS)));
+            pipeline.addLast("codec", new HttpClientCodec());
+            if (cConf.getBoolean(Constants.Router.ROUTER_AUDIT_LOG_ENABLED)) {
+              pipeline.addLast("audit-log", new AuditLogHandler(cConf));
+            }
+            pipeline.addLast("forwarder", new OutboundHandler(inboundChannel));
+          }
+        });
     }
 
-    /**
-     * Returns {@code true} if the outbound channel is active.
-     */
-    boolean isActive() {
-      return outboundChannelFuture.isSuccess() && outboundChannelFuture.channel().isActive();
-    }
+    void send(Object msg, ChannelFutureListener writeCompletedListener) {
+      if (outboundChannel == null) {
+        pendingMessages.add(new OutboundMessage(msg, writeCompletedListener));
 
-    /**
-     * Returns the {@link Discoverable} that this sender is associated with.
-     */
-    Discoverable getDiscoverable() {
-      return discoverable;
-    }
+        if (connecting) {
+          return;
+        }
 
-    void send(Object msg, final ChannelPromise promise) {
-      final OutboundMessage message = new OutboundMessage(msg, promise);
-      messages.add(message);
-
-      if (outboundChannelFuture.isSuccess()) {
-        flushUntilCompleted(outboundChannelFuture.channel(), message);
-      } else {
-        outboundChannelFuture.addListener(new ChannelFutureListener() {
+        ChannelFuture connectFuture = clientBootstrap.connect(discoverable.getSocketAddress());
+        connectFuture.addListener(new ChannelFutureListener() {
           @Override
           public void operationComplete(ChannelFuture future) throws Exception {
+            connecting = false;
+            outboundChannel = future.channel();
+
             if (future.isSuccess()) {
-              flushUntilCompleted(future.channel(), message);
+              if (closed) {
+                Channels.closeOnFlush(outboundChannel);
+              }
+              OutboundMessage message = pendingMessages.poll();
+              while (message != null) {
+                message.write(outboundChannel);
+                message = pendingMessages.poll();
+              }
+              flush();
             } else {
-              // If the outbound future failed, mark the promise as fail
-              promise.setFailure(future.cause());
+              // If failed to connect, write a failure response back to the inbound channel and close it
+              inboundChannel.writeAndFlush(createErrorResponse(future.cause()))
+                            .addListener(ChannelFutureListener.CLOSE);
             }
           }
         });
+
+        connecting = true;
+      } else {
+        outboundChannel.write(msg).addListener(writeCompletedListener);
       }
     }
 
-    /**
-     * Writes queued messages to the given channel and keep doing it until the given message is written.
-     */
-    private void flushUntilCompleted(Channel channel, OutboundMessage message) {
-      // Retry until the message is sent.
-      while (!message.isCompleted()) {
-        // If lose to be write, just yield for other threads and recheck if the message is sent.
-        if (!writer.compareAndSet(false, true)) {
-          Thread.yield();
-          continue;
-        }
+    @Override
+    public void flush() {
+      if (outboundChannel != null) {
+        outboundChannel.flush();
+      }
+    }
 
-        // Otherwise, send every messages in the queue.
-        // The ChannelPromise will be completed when the message is sent (or failed)
-        try {
-          Throwable failure = null;
-          try {
-            updateChannelPipeline(channel);
-          } catch (Exception e) {
-            failure = e;
-          }
-
-          OutboundMessage m = messages.poll();
-          while (m != null) {
-            if (failure == null) {
-              m.write(channel);
-            } else {
-              m.failure(failure);
-            }
-            m = messages.poll();
-          }
-        } finally {
-          writer.set(false);
+    @Override
+    public void close() {
+      if (!closed) {
+        closed = true;
+        if (outboundChannel != null) {
+          Channels.closeOnFlush(outboundChannel);
         }
       }
     }
 
-    private void updateChannelPipeline(Channel channel) throws SSLException {
-      if (pipelineUpdated.compareAndSet(false, true)) {
-        // If the pipeline already has the forwarder, which means it's been setup already
-        ChannelPipeline pipeline = channel.pipeline();
-
-        if (enableSSL) {
-          SslContext sslContext = SslContextBuilder
-            .forClient()
-            .trustManager(InsecureTrustManagerFactory.INSTANCE).build();
-
-          pipeline.addFirst("ssl", sslContext.newHandler(channel.alloc()));
-          LOG.trace("Adding ssl handler to the pipeline.");
-        }
-
-        pipeline.addLast("forwarder", new OutboundHandler(inboundChannel));
-      }
+    Discoverable getDiscoverable() {
+      return discoverable;
     }
   }
 
@@ -361,41 +378,15 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
    */
   private static final class OutboundMessage {
     private final Object message;
-    private final ChannelPromise promise;
+    private final ChannelFutureListener writeCompletedListener;
 
-    OutboundMessage(Object message, ChannelPromise promise) {
+    OutboundMessage(Object message, ChannelFutureListener writeCompletedListener) {
       this.message = message;
-      this.promise = promise;
-    }
-
-    boolean isCompleted() {
-      return promise.isDone();
-    }
-
-    void failure(Throwable cause) {
-      promise.setFailure(cause);
+      this.writeCompletedListener = writeCompletedListener;
     }
 
     void write(Channel channel) {
-      ChannelPromise writePromise = channel.newPromise();
-      writePromise.addListener(new ChannelFutureListener() {
-        @Override
-        public void operationComplete(ChannelFuture future) throws Exception {
-          if (future.isSuccess()) {
-            promise.setSuccess(future.get());
-          } else if (future.isCancelled()) {
-            promise.cancel(true);
-          } else {
-            promise.setFailure(future.cause());
-          }
-        }
-      });
-
-      channel.writeAndFlush(message, writePromise);
-    }
-
-    Object getMessage() {
-      return message;
+      channel.write(message).addListener(writeCompletedListener);
     }
   }
 }

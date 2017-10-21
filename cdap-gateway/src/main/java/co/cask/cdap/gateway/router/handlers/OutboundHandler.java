@@ -20,7 +20,10 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +55,9 @@ public class OutboundHandler extends ChannelDuplexHandler {
 
   @Override
   public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
-    requestInProgress = true;
+    if (!requestInProgress) {
+      requestInProgress = msg instanceof HttpObject;
+    }
     ctx.write(msg, promise);
   }
 
@@ -83,8 +88,29 @@ public class OutboundHandler extends ChannelDuplexHandler {
   public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
     // If the request is in progress and the outbound connection get dropped, close the inbound connection as well
     if (requestInProgress) {
-      inboundChannel.close();
+      Channels.closeOnFlush(inboundChannel);
     }
     ctx.fireChannelUnregistered();
+  }
+
+  @Override
+  public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+    if (!(evt instanceof IdleStateEvent)) {
+      ctx.fireUserEventTriggered(evt);
+      return;
+    }
+
+    if (IdleState.ALL_IDLE == ((IdleStateEvent) evt).state()) {
+      if (requestInProgress) {
+        LOG.debug("Request is in progress, so not closing channel.");
+      } else {
+        // No data has been sent or received for a while. Close channel.
+        Channel channel = ctx.channel();
+        channel.close();
+        LOG.debug("No data has been sent or received for channel '{}' for more than the configured idle timeout. " +
+                    "Closing the channel. Local Address: {}, Remote Address: {}",
+                  channel, channel.localAddress(), channel.remoteAddress());
+      }
+    }
   }
 }

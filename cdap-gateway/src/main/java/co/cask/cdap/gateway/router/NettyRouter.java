@@ -32,7 +32,6 @@ import com.google.common.util.concurrent.AbstractIdleService;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
-import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -44,7 +43,6 @@ import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import org.apache.twill.common.Cancellable;
@@ -71,7 +69,6 @@ public class NettyRouter extends AbstractIdleService {
   private final int serverBossThreadPoolSize;
   private final int serverWorkerThreadPoolSize;
   private final int serverConnectionBacklog;
-  private final int clientWorkerThreadPoolSize;
   private final InetAddress hostname;
   private final Map<String, Integer> serviceToPortMap;
   private final RouterServiceLookup serviceLookup;
@@ -82,9 +79,7 @@ public class NettyRouter extends AbstractIdleService {
   private final String realm;
   private final boolean sslEnabled;
   private final SSLHandlerFactory sslHandlerFactory;
-  private final int connectionTimeout;
 
-  private Bootstrap clientBootstrap;
   private DiscoveryServiceClient discoveryServiceClient;
   private Cancellable serverCancellable;
 
@@ -97,7 +92,6 @@ public class NettyRouter extends AbstractIdleService {
     this.serverBossThreadPoolSize = cConf.getInt(Constants.Router.SERVER_BOSS_THREADS);
     this.serverWorkerThreadPoolSize = cConf.getInt(Constants.Router.SERVER_WORKER_THREADS);
     this.serverConnectionBacklog = cConf.getInt(Constants.Router.BACKLOG_CONNECTIONS);
-    this.clientWorkerThreadPoolSize = cConf.getInt(Constants.Router.CLIENT_WORKER_THREADS);
     this.hostname = hostname;
     this.serviceToPortMap = new HashMap<>();
     this.serviceLookup = serviceLookup;
@@ -128,16 +122,12 @@ public class NettyRouter extends AbstractIdleService {
       this.serviceToPortMap.put(Constants.Router.GATEWAY_DISCOVERY_NAME, cConf.getInt(Constants.Router.ROUTER_PORT));
       this.sslHandlerFactory = null;
     }
-    this.connectionTimeout = cConf.getInt(Constants.Router.CONNECTION_TIMEOUT_SECS);
-    LOG.info("Using connection timeout: {}", connectionTimeout);
     LOG.info("Service to Port Mapping - {}", this.serviceToPortMap);
   }
 
   @Override
   protected void startUp() throws Exception {
     tokenValidator.startAndWait();
-    clientBootstrap = createClientBootstrap();
-
     ChannelGroup channelGroup = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
     serverCancellable = startServer(createServerBootstrap(channelGroup), channelGroup);
   }
@@ -147,7 +137,6 @@ public class NettyRouter extends AbstractIdleService {
     LOG.info("Stopping Netty Router...");
 
     serverCancellable.cancel();
-    clientBootstrap.config().group().shutdownGracefully().await();
     tokenValidator.stopAndWait();
 
     LOG.info("Stopped Netty Router.");
@@ -199,7 +188,7 @@ public class NettyRouter extends AbstractIdleService {
                                                        discoveryServiceClient, accessTokenTransformer));
           }
           // for now there's only one hardcoded rule, but if there will be more, we may want it generic and configurable
-          pipeline.addLast("http-request-handler", new HttpRequestRouter(clientBootstrap, serviceLookup));
+          pipeline.addLast("http-request-handler", new HttpRequestRouter(cConf, serviceLookup));
         }
       });
   }
@@ -249,15 +238,6 @@ public class NettyRouter extends AbstractIdleService {
         serverBootstrap.config().childGroup().shutdownGracefully().awaitUninterruptibly();
       }
     };
-  }
-
-  private Bootstrap createClientBootstrap() {
-    EventLoopGroup executorGroup = createEventLoopGroup(clientWorkerThreadPoolSize, "router-client-worker-thread-%d");
-    return new Bootstrap()
-      .group(executorGroup)
-      .channel(NioSocketChannel.class)
-      .option(ChannelOption.SO_KEEPALIVE, true)
-      .handler(new ClientChannelInitializer(cConf, connectionTimeout));
   }
 
   private boolean isSSLEnabled() {
