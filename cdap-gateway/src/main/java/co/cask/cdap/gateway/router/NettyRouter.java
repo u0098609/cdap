@@ -44,6 +44,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import org.apache.twill.common.Cancellable;
 import org.apache.twill.discovery.DiscoveryServiceClient;
@@ -54,7 +55,9 @@ import java.io.File;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
@@ -233,9 +236,14 @@ public class NettyRouter extends AbstractIdleService {
     return new Cancellable() {
       @Override
       public void cancel() {
-        channelGroup.close().awaitUninterruptibly();
-        serverBootstrap.config().group().shutdownGracefully().awaitUninterruptibly();
-        serverBootstrap.config().childGroup().shutdownGracefully().awaitUninterruptibly();
+        List<Future<?>> futures = new ArrayList<>();
+        futures.add(channelGroup.close());
+        futures.add(serverBootstrap.config().group().shutdownGracefully());
+        futures.add(serverBootstrap.config().childGroup().shutdownGracefully());
+
+        for (Future<?> future : futures) {
+          future.awaitUninterruptibly();
+        }
       }
     };
   }

@@ -37,11 +37,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.QueryParam;
 
 /**
  * A generic server for testing router.
@@ -181,6 +183,14 @@ public class ServerResource extends ExternalResource {
           throw Throwables.propagate(cause);
         }
       };
+    }
+
+    @GET
+    @Path("/v1/sleep")
+    public void sleep(HttpRequest request, HttpResponder responder,
+                      @QueryParam("sleepMillis") long sleepMillis) throws Exception {
+      TimeUnit.MILLISECONDS.sleep(sleepMillis);
+      responder.sendStatus(HttpResponseStatus.OK);
     }
   }
 }

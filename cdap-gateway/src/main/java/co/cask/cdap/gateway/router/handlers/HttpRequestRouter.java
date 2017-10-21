@@ -140,15 +140,14 @@ public class HttpRequestRouter extends ChannelDuplexHandler {
   @Override
   public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
     ctx.writeAndFlush(msg, promise);
-    inflightRequests--;
 
     // When the response for the first request is completed, write N responses for all pipelining requests (if any).
     if (msg instanceof LastHttpContent) {
-      for (int i = 0; i < inflightRequests; i++) {
+      for (int i = 0; i < inflightRequests - 1; i++) {
         ctx.writeAndFlush(createPipeliningNotSupported());
       }
+      inflightRequests = 0;
     }
-    inflightRequests = 0;
 
     if (currentMessageSender != null) {
       messageSenders.get(currentMessageSender.getDiscoverable()).add(currentMessageSender);
