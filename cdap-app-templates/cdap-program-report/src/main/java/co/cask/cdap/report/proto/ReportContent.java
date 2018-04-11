@@ -19,7 +19,7 @@ package co.cask.cdap.report.proto;
 import java.util.List;
 
 /**
- * Represents report records of program runs in an HTTP response.
+ * Represents report content details in an HTTP response.
  */
 public class ReportContent {
   private final long offset;

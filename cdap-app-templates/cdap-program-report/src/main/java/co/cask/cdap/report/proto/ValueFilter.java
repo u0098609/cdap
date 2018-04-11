@@ -27,7 +27,7 @@ import javax.annotation.Nullable;
 
 /**
  * Represents a filter that checks whether a given value of a field is one of the allowed values and is not one of
- * the forbidden values.
+ * the disallowed values.
  *
  * @param <T> type of the values
  */
@@ -69,11 +69,7 @@ public class ValueFilter<T> extends Filter<T> {
     if (getWhitelist().isEmpty() && getBlacklist().isEmpty()) {
       errors.add("'whitelist' and 'blacklist' cannot both be empty");
     } else if (!getWhitelist().isEmpty() && !getBlacklist().isEmpty()) {
-      Set<T> duplicates = new HashSet<>(getWhitelist());
-      duplicates.retainAll(getBlacklist());
-      if (!duplicates.isEmpty()) {
-        errors.add("'whitelist' and 'blacklist' should not contain duplicated elements");
-      }
+      errors.add("Only one of 'whitelist' and 'blacklist' can be non-empty");
     }
     return errors.isEmpty() ? null :
       String.format("Filter %s contains these errors: %s", getFieldName(), String.join("; ", errors));

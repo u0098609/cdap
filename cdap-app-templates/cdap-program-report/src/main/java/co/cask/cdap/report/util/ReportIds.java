@@ -26,8 +26,9 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+// TODO: Most of this class is copied from {@link co.cask.cdap.common.app.RunIds}. Need to reduce code duplication.
 /**
- * Generates an unique ID for a running program using type 1 and variant 2 time-based {@link UUID}.
+ * Generates an unique ID for a report using type 1 and variant 2 time-based {@link UUID}.
  * This implements time-based UUID generation algorithm described in
  * <a href="http://www.ietf.org/rfc/rfc4122.txt">A Universally Unique IDentifier (UUID) URN Namespace</a>
  * with the following modifications:
@@ -39,7 +40,6 @@ import java.util.concurrent.atomic.AtomicLong;
  *   multiple times at the same millisecond (up to 10000 times).</li>
  * </ul>
  */
-// TODO: Most of this class is copied from {@link co.cask.cdap.common.app.RunIds}. Need to reduce code duplication.
 public final class ReportIds {
   private static final Random RANDOM = new Random();
 

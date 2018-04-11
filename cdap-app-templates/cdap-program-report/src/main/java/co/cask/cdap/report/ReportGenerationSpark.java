@@ -152,7 +152,7 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
       reportIdDirs.sort((loc1, loc2) -> Long.compare(ReportIds.getTime(loc1.getName(), TimeUnit.SECONDS),
                                                      ReportIds.getTime(loc2.getName(), TimeUnit.SECONDS)));
 
-      // Keep add report status information to the list until the index is no longer smaller than
+      // Keep adding report status information to the list until the index is no longer smaller than
       // the number of report directories or the list is reaching the given limit
       while (idx < reportIdDirs.size() && reportStatuses.size() < limit) {
         Location reportIdDir = reportIdDirs.get(idx++);
@@ -294,8 +294,8 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
     }
 
     /**
-     * Delegates report generation to {@link #generateReport(ReportGenerationRequest, Location)} and catch any
-     * errors in report generation and write them to a _FAILURE file.
+     * Delegates report generation to {@link #generateReport(ReportGenerationRequest, Location)} and writes
+     * errors caught during report generation to a _FAILURE file.
      *
      * @param reportRequest the request to generate report
      * @param reportIdDir the location of the directory which will be the parent directory of _FAILURE file

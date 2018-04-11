@@ -23,8 +23,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Represents a filter that can be applied to a field and determine whether the field's value is allowed to
- * be included in the report.
+ * Represents a filter that checks whether the value of a field is allowed to be included in the report.
  *
  * @param <T> type of the values
  */
@@ -34,7 +33,7 @@ public abstract class Filter<T> extends ReportGenerationRequest.Field {
   }
 
   /**
-   * Checks whether the given value of the field is allowed.
+   * Checks whether the given value of the field is allowed to be included in the report.
    *
    * @param value value of the field
    * @return {@code true} if the value is allowed, {@code false} otherwise.
@@ -42,7 +41,7 @@ public abstract class Filter<T> extends ReportGenerationRequest.Field {
   public abstract boolean apply(T value);
 
   /**
-   * Get errors in the filter of a given filter type that are not allowed in a report generation request.
+   * Gets errors in the filter of a given filter type that are not allowed in a report generation request.
    *
    * @param filterType type of the filter
    * @return list of errors in the filter

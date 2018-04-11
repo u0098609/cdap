@@ -35,15 +35,15 @@ public class ReportList {
   }
 
   /**
-   * @return the offset in the whole list of reports from which the report information
-   *         are added to this {@link ReportList}
+   * @return the offset in the whole list of reports where the report information's
+   *         start to be added to this {@link ReportList}
    */
   public int getOffset() {
     return offset;
   }
 
   /**
-   * @return the max limit of number of report information contained in this {@link ReportList}
+   * @return the max number of report information's contained in this {@link ReportList}
    */
   public int getLimit() {
     return limit;
@@ -57,7 +57,7 @@ public class ReportList {
   }
 
   /**
-   * @return the list of report information
+   * @return the list of report information's
    */
   public List<ReportStatusInfo> getReports() {
     return reports;

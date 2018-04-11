@@ -56,8 +56,8 @@ public class ReportGenerationRequest {
   }
 
   /**
-   * @return the end of the time range within which the report is generated. All program runs in the report must be
-   *         still start before {@code end}.
+   * @return the end of the time range within which the report is generated. All program runs in the report must
+   *         start before {@code end}.
    */
   public Long getEnd() {
     return end;

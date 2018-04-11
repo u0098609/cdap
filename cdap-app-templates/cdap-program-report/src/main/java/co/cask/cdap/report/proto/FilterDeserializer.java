@@ -39,7 +39,7 @@ public class FilterDeserializer implements JsonDeserializer<Filter> {
     new TypeToken<ValueFilter<String>>() { }.getType();
 
   /**
-   * Deserialize a JSON String as {@link Filter}. Determine the class and data type of
+   * Deserializes a JSON String as {@link Filter}. Determines the class and data type of
    * the filter according to the field name that the filter contains.
    */
   @Nullable
