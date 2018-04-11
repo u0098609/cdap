@@ -46,6 +46,7 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SQLContext;
 import org.apache.spark.sql.SparkSession;
+import org.apache.twill.common.Threads;
 import org.apache.twill.filesystem.Location;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -77,7 +79,6 @@ import javax.ws.rs.QueryParam;
  * A Spark program for generating reports, querying for report statuses, and reading reports.
  */
 public class ReportGenerationSpark extends AbstractExtendedSpark implements JavaSparkMain {
-  private static final Logger LOG = LoggerFactory.getLogger(ReportGenerationSpark.class);
   private static final Gson GSON = new GsonBuilder()
     .registerTypeAdapter(Filter.class, new FilterDeserializer())
     .create();
@@ -99,21 +100,21 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
   public static final class ReportSparkHandler extends AbstractSparkHttpServiceHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ReportSparkHandler.class);
-    private static final Type REPORT_GENERATION_REQUEST_TYPE = new TypeToken<ReportGenerationRequest>() {
-    }.getType();
+    private static final Type REPORT_GENERATION_REQUEST_TYPE = new TypeToken<ReportGenerationRequest>() { }.getType();
     private static final String DEFAULT_LIMIT = "10000";
-    private SparkSession sparkSession;
+    private static final String READ_LIMIT = "readLimit";
+    private static final String START_FILE = "_START";
+    private static final String FAILURE_FILE = "_FAILURE";
+    private static final AtomicBoolean EXECUTOR_SHUTDOWN = new AtomicBoolean();
 
-    public static final String READ_LIMIT = "readLimit";
-    public static final String THREAD_POOL_SIZE = "poolSize";
-    public static final String START_FILE = "_START";
     public static final String REPORT_DIR = "reports";
     public static final String COUNT_FILE = "COUNT";
     public static final String SUCCESS_FILE = "_SUCCESS";
-    public static final String FAILURE_FILE = "_FAILURE";
+
+    private static ExecutorService reportGenerationExecutor;
 
     private int readLimit;
-    private ExecutorService reportGenerationExecutor;
+    private SparkSession sparkSession;
 
     @Override
     public void initialize(SparkHttpServiceContext context) throws Exception {
@@ -121,9 +122,18 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
       sparkSession = new SQLContext(getContext().getSparkContext()).sparkSession();
       String readLimitString = context.getRuntimeArguments().get(READ_LIMIT);
       readLimit = readLimitString == null ? 10000 : Integer.valueOf(readLimitString);
-      String threadPoolSizeString = context.getRuntimeArguments().get(THREAD_POOL_SIZE);
-      reportGenerationExecutor =
-        Executors.newFixedThreadPool(threadPoolSizeString == null ? 3 : Integer.valueOf(threadPoolSizeString));
+    }
+
+    @Override
+    public void destroy() {
+      super.destroy();
+      if (EXECUTOR_SHUTDOWN.compareAndSet(false, true)) {
+        synchronized (ReportSparkHandler.class) {
+          if (reportGenerationExecutor != null) {
+            reportGenerationExecutor.shutdown();
+          }
+        }
+      }
     }
 
     @GET
@@ -279,12 +289,7 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
       }
       LOG.debug("Wrote to startFile {}", startFile.toURI());
       // Generate the report asynchronously
-      if (reportGenerationExecutor == null) {
-        throw new RuntimeException("reportGenerationExecutor is null");
-      }
-      reportGenerationExecutor.execute(() -> {
-        tryGenerateReport(reportRequest, reportIdDir, reportId);
-      });
+      getReportGenerationExecutor().execute(() -> tryGenerateReport(reportRequest, reportIdDir, reportId));
       responder.sendJson(200, ImmutableMap.of("id", reportId));
     }
 
@@ -334,9 +339,7 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
      *                    and _SUCCESS file will be created.
      */
     private void generateReport(ReportGenerationRequest reportRequest, Location reportIdDir) throws IOException {
-      Location baseLocation = Transactionals.execute(getContext(), context -> {
-        return context.<FileSet>getDataset(ReportGenerationApp.RUN_META_FILESET).getBaseLocation();
-      });
+      Location baseLocation = getDatasetBaseLocation(ReportGenerationApp.RUN_META_FILESET);
       // Get a list of directories of all namespaces under RunMetaFileset base location
       List<Location> nsLocations;
       nsLocations = baseLocation.list();
@@ -390,6 +393,17 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
     }
 
     /**
+     * @return a singleton executor for report generation
+     */
+    private static synchronized ExecutorService getReportGenerationExecutor() {
+      if (reportGenerationExecutor == null) {
+        reportGenerationExecutor =
+          Executors.newCachedThreadPool(Threads.createDaemonThreadFactory("report-generation"));
+      }
+      return reportGenerationExecutor;
+    }
+
+    /**
      * Returns the status of the report generation by checking the presence of the success file or the failure file.
      * If neither of these files exists, the report generation is still running.
      *
@@ -415,7 +429,7 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
       });
     }
 
-    private  <T> T decodeRequestBody(String request, Type type) {
+    private <T> T decodeRequestBody(String request, Type type) {
       T decodedRequestBody;
       try {
         decodedRequestBody = GSON.fromJson(request, type);

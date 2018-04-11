@@ -28,10 +28,8 @@ class RecordAggregator extends Aggregator[Row, RecordBuilder, Record] {
   def zero: RecordBuilder = RecordBuilder("", "", "", Vector.empty, None)
   def reduce(builder: RecordBuilder, row: Row): RecordBuilder = {
     // Get the StartInfo from the builder if it exists or construct a new StartInfo from the row
-    val startInfo: Option[StartInfo] = if (builder.startInfo.isDefined) builder.startInfo else {
-      Option(row.getAs[Row](Constants.START_INFO)).map(r => StartInfo(r.getAs(Constants.USER),
-        r.getAs(Constants.RUNTIME_ARGUMENTS)))
-    }
+    val startInfo = builder.startInfo.orElse(Option(row.getAs[Row](Constants.START_INFO)).map(rowToStartInfo))
+
     // Merge statusTimes from the builder with the new status and time tuple from the row. Combined with
     // the information from the row and the startInfo to create a new RecordBuilder
     RecordBuilder(row.getAs(Constants.NAMESPACE), row.getAs(Constants.PROGRAM), row.getAs(Constants.RUN),
@@ -45,4 +43,7 @@ class RecordAggregator extends Aggregator[Row, RecordBuilder, Record] {
   }
   def bufferEncoder(): Encoder[RecordBuilder] = Encoders.product[RecordBuilder]
   def outputEncoder(): Encoder[Record] = Encoders.product[Record]
+
+  private def rowToStartInfo(row: Row): StartInfo =
+    StartInfo(row.getAs(Constants.USER), row.getAs(Constants.RUNTIME_ARGUMENTS))
 }
