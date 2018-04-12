@@ -17,9 +17,7 @@
 package co.cask.cdap.report;
 
 import co.cask.cdap.api.common.Bytes;
-import co.cask.cdap.api.dataset.InstanceConflictException;
 import co.cask.cdap.api.dataset.lib.FileSet;
-import co.cask.cdap.api.dataset.lib.FileSetProperties;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.lang.ClassLoaders;
 import co.cask.cdap.common.utils.Tasks;
