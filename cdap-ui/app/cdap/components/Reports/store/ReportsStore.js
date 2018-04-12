@@ -50,6 +50,11 @@ const defaultListState = {
 };
 
 const defaultDetailsState = {
+  created: null,
+  expiry: null,
+  name: null,
+  request: {},
+  status: null,
   summary: {},
   runs: []
 };
@@ -94,7 +99,8 @@ const details = (state = defaultDetailsState, action = defaultAction) => {
   switch (action.type) {
     case ReportsActions.setDetails:
       return {
-        summary: action.payload.summary,
+        ...state,
+        ...action.payload.info,
         runs: action.payload.runs
       };
     case ReportsActions.reset:
