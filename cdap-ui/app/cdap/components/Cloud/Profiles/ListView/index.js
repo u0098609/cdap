@@ -25,6 +25,7 @@ import IconSVG from 'components/IconSVG';
 import LoadingSVG from 'components/LoadingSVG';
 import orderBy from 'lodash/orderBy';
 import ViewAllLabel from 'components/ViewAllLabel';
+import Popover from 'components/Popover';
 require('./ListView.scss');
 
 const PREFIX = 'features.Cloud.Profiles.ListView';
@@ -145,6 +146,10 @@ export default class ProfilesListView extends Component {
       profiles: orderBy(this.state.profiles, [newSortColumn], [newSortMethod])
     });
   };
+
+  exportProfile = () => {};
+
+  deleteProfile = () => {};
 
   renderProfilesTable() {
     if (!this.state.profiles.length) {
@@ -271,7 +276,28 @@ export default class ProfilesListView extends Component {
                 <div />
                 <div />
                 <div />
-                <div />
+                <div>
+                  <Popover
+                    target={() => <IconSVG name="icon-cog-empty" />}
+                    className="profile-actions-popover"
+                    placement="bottom"
+                    bubbleEvent={false}
+                    enableInteractionInPopover={true}
+                  >
+                    <ul>
+                      <li onClick={this.exportProfile.bind(this, profile)}>
+                        Export
+                      </li>
+                      <hr />
+                      <li
+                        className="delete-action"
+                        onClick={this.deleteProfile.bind(this, profile)}
+                      >
+                        Delete
+                      </li>
+                    </ul>
+                  </Popover>
+                </div>
               </div>
             );
           })
