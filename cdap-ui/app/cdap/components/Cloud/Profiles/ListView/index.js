@@ -26,6 +26,7 @@ import LoadingSVG from 'components/LoadingSVG';
 import orderBy from 'lodash/orderBy';
 import ViewAllLabel from 'components/ViewAllLabel';
 import Popover from 'components/Popover';
+import ConfirmationModal from 'components/ConfirmationModal';
 require('./ListView.scss');
 
 const PREFIX = 'features.Cloud.Profiles.ListView';
@@ -93,6 +94,9 @@ export default class ProfilesListView extends Component {
     viewAll: false,
     sortMethod: SORT_METHODS.asc,
     sortColumn: PROFILES_TABLE_HEADERS[1].property,
+    profileToDelete: null,
+    deleteErrMsg: '',
+    extendedDeleteErrMsg: ''
   };
 
   static propTypes = {
@@ -101,27 +105,30 @@ export default class ProfilesListView extends Component {
   };
 
   componentDidMount() {
-    MyCloudApi.list({
-      namespace: this.props.namespace
-    })
-    .subscribe(
-      profiles => {
-        this.setState({
-          profiles,
-          loading: false
-        }, () => {
-          if (typeof this.props.onChange === 'function') {
-            this.props.onChange(profiles);
-          }
-        });
-      },
-      err => {
-        this.setState({
-          error: err,
-          loading: false
-        });
-      }
-    );
+    this.getProfiles();
+  }
+
+  getProfiles() {
+    MyCloudApi
+      .list({ namespace: this.props.namespace })
+      .subscribe(
+        profiles => {
+          this.setState({
+            profiles,
+            loading: false
+          }, () => {
+            if (typeof this.props.onChange === 'function') {
+              this.props.onChange(profiles);
+            }
+          });
+        },
+        err => {
+          this.setState({
+            error: err,
+            loading: false
+          });
+        }
+      );
   }
 
   toggleViewAll = () => {
@@ -149,7 +156,34 @@ export default class ProfilesListView extends Component {
 
   exportProfile = () => {};
 
-  deleteProfile = () => {};
+  deleteProfile = (profile) => {
+    MyCloudApi
+      .delete({
+        namespace: this.props.namespace,
+        profile
+      })
+      .subscribe(() => {
+        this.getProfiles();
+        this.setState({
+          profileToDelete: null,
+          deleteErrMsg: '',
+          extendedDeleteErrMsg: ''
+        });
+      }, (err) => {
+        this.setState({
+          deleteErrMsg: T.translate(`${PREFIX}.deleteError`),
+          extendedDeleteErrMsg: err
+        });
+      });
+  };
+
+  toggleDeleteConfirmationModal = (profileToDelete = null) => {
+    this.setState({
+      profileToDelete,
+      deleteErrMsg: '',
+      extendedDeleteErrMsg: ''
+    });
+  }
 
   renderProfilesTable() {
     if (!this.state.profiles.length) {
@@ -291,7 +325,7 @@ export default class ProfilesListView extends Component {
                       <hr />
                       <li
                         className="delete-action"
-                        onClick={this.deleteProfile.bind(this, profile)}
+                        onClick={this.toggleDeleteConfirmationModal.bind(this, profile.name)}
                       >
                         Delete
                       </li>
@@ -303,6 +337,28 @@ export default class ProfilesListView extends Component {
           })
         }
       </div>
+    );
+  }
+
+  renderDeleteConfirmationModal() {
+    if (!this.state.profileToDelete) {
+      return null;
+    }
+
+    let confirmationElem = () => <div>{T.translate(`${PREFIX}.deleteConfirmation`, {profile: this.state.profileToDelete})}</div>;
+
+    return (
+      <ConfirmationModal
+        headerTitle={T.translate(`${PREFIX}.deleteTitle`)}
+        toggleModal={this.toggleDeleteConfirmationModal.bind(this, null)}
+        confirmationElem={confirmationElem()}
+        confirmButtonText={T.translate('commons.delete')}
+        confirmFn={this.deleteProfile.bind(this, this.state.profileToDelete)}
+        cancelFn={this.toggleDeleteConfirmationModal.bind(this, null)}
+        isOpen={this.state.profileToDelete !== null}
+        errorMessage={this.state.deleteErrMsg}
+        extendedMessage={this.state.extendedDeleteErrMsg}
+      />
     );
   }
 
@@ -336,6 +392,7 @@ export default class ProfilesListView extends Component {
           viewAllState={this.state.viewAll}
           toggleViewAll={this.toggleViewAll}
         />
+        {this.renderDeleteConfirmationModal()}
       </div>
     );
   }

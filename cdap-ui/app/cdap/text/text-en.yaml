@@ -8,6 +8,7 @@ commons:
   cdap: CDAP
   clickhere: click here
   close: Close
+  delete: Delete
   descriptionLabel: Description
   DSVEditor:
     placeholder: value
@@ -247,6 +248,9 @@ features:
       ListView:
         assosciations: Assosciations
         createOne: "creating one"
+        deleteConfirmation: Are you sure you want to delete the profile *_{profile}_*?
+        deleteError: There was a problem deleting the profile
+        deleteTitle: Delete Profile
         last24HrNodeHr: Last 24 hrs node/hr
         last24HrRuns: Last 24 hrs runs
         noProfiles: "No compute profiles have been defined in this namespace. Start by "
