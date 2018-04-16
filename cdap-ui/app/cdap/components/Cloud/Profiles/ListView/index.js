@@ -27,6 +27,7 @@ import orderBy from 'lodash/orderBy';
 import ViewAllLabel from 'components/ViewAllLabel';
 import Popover from 'components/Popover';
 import ConfirmationModal from 'components/ConfirmationModal';
+import fileDownload from 'js-file-download';
 require('./ListView.scss');
 
 const PREFIX = 'features.Cloud.Profiles.ListView';
@@ -154,7 +155,23 @@ export default class ProfilesListView extends Component {
     });
   };
 
-  exportProfile = () => {};
+  exportProfile = (profile) => {
+    MyCloudApi
+      .get({
+        namespace: this.props.namespace,
+        profile
+      })
+      .subscribe(
+        (res) => {
+          let json = JSON.stringify(res, null, 2);
+          let fileName = `${profile}-profile.json`;
+          fileDownload(json, fileName);
+        },
+        (err) => {
+          this.setState({ error: err });
+        }
+      );
+  };
 
   deleteProfile = (profile) => {
     MyCloudApi
@@ -319,7 +336,7 @@ export default class ProfilesListView extends Component {
                     enableInteractionInPopover={true}
                   >
                     <ul>
-                      <li onClick={this.exportProfile.bind(this, profile)}>
+                      <li onClick={this.exportProfile.bind(this, profile.name)}>
                         Export
                       </li>
                       <hr />
