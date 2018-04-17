@@ -44,7 +44,6 @@ import Helmet from 'react-helmet';
 import queryString from 'query-string';
 import LoadingSVGCentered from 'components/LoadingSVGCentered';
 import DataPrepActions from 'components/DataPrep/store/DataPrepActions';
-import {objectQuery} from 'services/helpers';
 
 require('./CreateView.scss');
 
@@ -67,11 +66,10 @@ export default class ExperimentCreateView extends Component {
   componentDidMount() {
     this.dataprepsubscription = DataPrepStore.subscribe(() => {
       let {dataprep} = DataPrepStore.getState();
-      let {headers = [], directives, workspaceInfo = {}} = dataprep;
+      let {headers = [], directives, workspaceInfo = {}, workspaceId} = dataprep;
       if (!headers.length) {
         return;
       }
-      let workspaceId = objectQuery(workspaceInfo, 'workspace', 'name');
       setWorkspace(workspaceId);
       setSrcPath(workspaceInfo.properties.path);
       setOutcomeColumns(headers);
@@ -149,6 +147,7 @@ export default class ExperimentCreateView extends Component {
             setWorkspace(workspaceId);
             this.setState({workspaceId});
           }}
+          scope={true}
         />
       </span>
     );

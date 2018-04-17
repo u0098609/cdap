@@ -165,10 +165,15 @@ function setSplitDetails(experimentId, splitId) {
 
 function createExperiment() {
   let {model_create, experiments_create} = createExperimentStore.getState();
+  let {name, description, outcome, srcpath} = experiments_create;
   let {directives} = model_create;
   let requestBody = directiveRequestBodyCreator(directives);
   let experiment = {
-    ...experiments_create
+    name,
+    description,
+    outcome,
+    srcpath,
+    directives
   };
   MyDataPrepApi
     .getSchema({
@@ -192,28 +197,30 @@ function createExperiment() {
     .subscribe(setExperimentCreated.bind(null, experiments_create.name));
 }
 
-function pollForSplitStatus(experimentId, split) {
+function pollForSplitStatus(experimentId, modelId) {
   const getStatusOfSplit = (callback, errorCallback) => {
     const params = {
       namespace: getCurrentNamespace(),
       experimentId,
-      splitId: split.id
+      modelId
     };
     let splitStautsPoll = myExperimentsApi
-      .getSplitStatus(params)
-      .subscribe(status => {
+      .pollModel(params)
+      .subscribe(modelDetails => {
+        let {status, split} = modelDetails;
         if (status === 'Splitting') {
           return;
         }
-        if (status === 'Complete' || status === 'Failed') {
+        if (status === 'Data Ready' || status === 'Split Failed') {
           splitStautsPoll.unsubscribe();
-          return callback();
+          return callback(split);
         }
+        // TODO: Should this be called on split failed?
         errorCallback();
       });
   };
   return Observable.create((observer) => {
-    const successCallback = () => {
+    const successCallback = (split) => {
       observer.next(split);
     };
     const failureCallback = () => {
@@ -225,7 +232,7 @@ function pollForSplitStatus(experimentId, split) {
 
 function createSplitAndUpdateStatus() {
   let {model_create, experiments_create} = createExperimentStore.getState();
-  let {directives, schema} = model_create;
+  let {directives, schema, modelId} = model_create;
   let splitInfo = {
     schema,
     directives,
@@ -243,11 +250,13 @@ function createSplitAndUpdateStatus() {
     }
   });
   myExperimentsApi
-    .createSplit({namespace: getCurrentNamespace(), experimentId: experiments_create.name}, splitInfo)
-    .mergeMap(split => {
-      setSplitDetails(experiments_create.name, split.id, true);
-      addSplitToModel(split.id);
-      return pollForSplitStatus(experiments_create.name, split);
+    .createSplit({
+      namespace: getCurrentNamespace(),
+      experimentId: experiments_create.name,
+      modelId
+    }, splitInfo)
+    .mergeMap(() => {
+      return pollForSplitStatus(experiments_create.name, modelId);
     })
     .subscribe(
       setSplitDetails.bind(null, experiments_create.name),
@@ -258,30 +267,34 @@ function createSplitAndUpdateStatus() {
 
 function createModel() {
   let {experiments_create, model_create} = createExperimentStore.getState();
-  let {split} = model_create;
+  let {directives} = model_create;
   let model = {
     name: model_create.name,
-    description: model_create.description
+    description: model_create.description,
+    directives
   };
 
   return myExperimentsApi
-    .createModelInExperiment({namespace: getCurrentNamespace(), experimentId: experiments_create.name}, {...model, split})
-    .subscribe(({id: modelId}) => {
-      createExperimentStore.dispatch({
-        type: CREATEEXPERIMENTACTIONS.SET_MODEL_ID,
-        payload: {modelId}
+    .createModelInExperiment({
+      namespace: getCurrentNamespace(),
+      experimentId: experiments_create.name
+    }, model)
+      .subscribe(({id: modelId}) => {
+        createExperimentStore.dispatch({
+          type: CREATEEXPERIMENTACTIONS.SET_MODEL_ID,
+          payload: {modelId}
+        });
+        setExperimentLoading(false);
+        let url = `${location.pathname}${location.search}&modelId=${modelId}`;
+        history.replaceState(
+          { url },
+          document.title,
+          url
+        );
+      }, (err) => {
+        console.log('ERROR: ', err); // FIXME: We should surface the errors. There will be errors
+        setExperimentLoading(false);
       });
-      setExperimentLoading(false);
-      let url = `${location.pathname}${location.search}&modelId=${modelId}`;
-      history.replaceState(
-        { url },
-        document.title,
-        url
-      );
-    }, (err) => {
-      console.log('ERROR: ', err); // FIXME: We should surface the errors. There will be errors
-      setExperimentLoading(false);
-    });
 }
 
 function trainModel() {
@@ -309,6 +322,40 @@ function trainModel() {
     });
 }
 
+function createWorkspace(filePath) {
+    let params = {
+      namespace: getCurrentNamespace(),
+      path: filePath,
+      lines: 10000,
+      sampler: 'first',
+      scope: 'mmds'
+    };
+
+    let headers = {
+      'Content-Type': 'text/plain' // FIXME: THIS IS A HACK. NEED TO GET THIS FROM EXPERIMENT
+    };
+
+    return MyDataPrepApi.readFile(params, null, headers);
+}
+
+function applyDirectives(workspaceId, directives) {
+  return MyDataPrepApi
+    .getWorkspace({
+      namespace: getCurrentNamespace(),
+      workspaceId
+    })
+    .mergeMap(res => {
+      let workspaceInfo = res.values[0];
+      let params = {
+        workspaceId,
+        namespace: getCurrentNamespace()
+      };
+      let requestBody = directiveRequestBodyCreator(directives);
+      requestBody.properties = workspaceInfo.properties;
+      return MyDataPrepApi.execute(params, requestBody);
+    });
+}
+
 const getExperimentForEdit = (experimentId) => {
   setExperimentLoading();
   let experiment;
@@ -319,15 +366,16 @@ const getExperimentForEdit = (experimentId) => {
     })
     .mergeMap(exp => {
       experiment = exp;
-    // Get workspace info for directives
-      return MyDataPrepApi.getWorkspace({
-        namespace: getCurrentNamespace(),
-        workspaceId: exp.workspaceId
-      });
+      return createWorkspace(exp.srcpath);
     })
-    .mergeMap(workspaceInfo => {
+    .mergeMap(res => {
+      let workspaceId = res.values[0].id;
+      experiment.workspaceId = workspaceId;
+      return applyDirectives(workspaceId, experiment.directives);
+    })
+    .mergeMap(() => {
     // Get schema with workspaceId and directives
-      let directives = workspaceInfo.values[0].recipe.directives;
+      let {directives} = experiment;
       setDirectives(directives);
       let requestBody = directiveRequestBodyCreator(directives);
       return MyDataPrepApi.getSchema({
@@ -362,15 +410,16 @@ const getExperimentModelSplitForCreate = (experimentId, modelId) => {
     })
     .mergeMap(exp => {
       experiment = exp;
-    // Get workspace info for directives
-      return MyDataPrepApi.getWorkspace({
-        namespace: getCurrentNamespace(),
-        workspaceId: exp.workspaceId
-      });
+      return createWorkspace(exp.srcpath);
     })
-    .mergeMap(workspaceInfo => {
+    .mergeMap(res => {
+      let workspaceId = res.values[0].id;
+      experiment.workspaceId = workspaceId;
+      return applyDirectives(workspaceId, experiment.directives);
+    })
+    .mergeMap(() => {
     // Get schema with workspaceId and directives
-      let directives = workspaceInfo.values[0].recipe.directives;
+      let {directives} = experiment;
       setDirectives(directives);
       let requestBody = directiveRequestBodyCreator(directives);
       return MyDataPrepApi.getSchema({
@@ -418,7 +467,7 @@ const getExperimentModelSplitForCreate = (experimentId, modelId) => {
           payload
         });
         if (typeof splitInfo === 'object' && splitInfo.status !== 'Complete') {
-          pollForSplitStatus(experiment.name, splitInfo)
+          pollForSplitStatus(experiment.name, modelId)
             .subscribe(setSplitDetails.bind(null, experiment.name));
         }
       },
@@ -456,20 +505,6 @@ function setAlgorithmList() {
         }
       });
     });
-}
-
-function addSplitToModel(splitId) {
-  let {experiments_create, model_create} = createExperimentStore.getState();
-  myExperimentsApi
-    .setSplitToModel({
-      namespace: getCurrentNamespace(),
-      experimentId: experiments_create.name,
-      modelId: model_create.modelId
-    }, {id: splitId})
-    .subscribe(
-      () => {},
-      (err) => console.log('Adding split faied: ', err)
-    );
 }
 
 function setSplitFinalized() {
@@ -531,7 +566,6 @@ export {
   getExperimentForEdit,
   getExperimentModelSplitForCreate,
   setAlgorithmList,
-  addSplitToModel,
   setSplitFinalized,
   resetCreateExperimentsStore,
   fetchAlgorithmsList,
