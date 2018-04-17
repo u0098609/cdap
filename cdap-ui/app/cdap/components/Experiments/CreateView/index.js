@@ -44,6 +44,7 @@ import Helmet from 'react-helmet';
 import queryString from 'query-string';
 import LoadingSVGCentered from 'components/LoadingSVGCentered';
 import DataPrepActions from 'components/DataPrep/store/DataPrepActions';
+import MyDataPrepApi from 'api/dataprep';
 
 require('./CreateView.scss');
 
@@ -113,6 +114,15 @@ export default class ExperimentCreateView extends Component {
     fetchAlgorithmsList();
   }
   componentWillUnmount() {
+    let {experiments_create} = createExperimentStore.getState();
+    let {workspaceId} = experiments_create;
+    if (workspaceId) {
+      // Every workspace created in experiments create view is temp. So don't worry about deleting it.
+      MyDataPrepApi.delete({
+        namespace: getCurrentNamespace(),
+        workspaceId
+      }).subscribe();
+    }
     DataPrepStore.dispatch({
       type: DataPrepActions.reset
     });
