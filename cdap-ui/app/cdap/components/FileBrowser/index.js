@@ -190,13 +190,24 @@ export default class FileBrowser extends Component {
   }
   ingestFile(content) {
     let namespace = NamespaceStore.getState().selectedNamespace;
-
+    let {scope = false} = this.props;
     let params = {
       namespace,
       path: content.path,
       lines: 10000,
       sampler: 'first'
     };
+
+    if (scope) {
+      if (typeof scope === 'string') {
+        params.scope = scope;
+      } else if (typeof scope === 'boolean') {
+        // FIXME: Leaky. Why MMDS into filebrowser? This should be extracted out as a pure function.
+        // Or when backend adds a flag to create a new workspace everytime then use that
+        // instead of passing a hardcoded string for scope.
+        params.scope = 'mmds';
+      }
+    }
 
     let headers = {
       'Content-Type': content.type
@@ -551,5 +562,6 @@ FileBrowser.propTypes = {
   noState: PropTypes.bool,
   toggle: PropTypes.func.isRequired,
   enableRouting: PropTypes.bool,
-  onWorkspaceCreate: PropTypes.func
+  onWorkspaceCreate: PropTypes.func,
+  scope: PropTypes.oneOfType([PropTypes.bool, PropTypes.string])
 };
