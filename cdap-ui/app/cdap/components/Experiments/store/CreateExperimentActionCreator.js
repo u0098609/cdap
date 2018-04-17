@@ -126,6 +126,7 @@ function updateHyperParam(key, value) {
     payload: {key, value}
   });
 }
+
 function setWorkspace(workspaceId) {
   createExperimentStore.dispatch({
     type: CREATEEXPERIMENTACTIONS.SET_WORKSPACE_ID,
@@ -230,6 +231,15 @@ function pollForSplitStatus(experimentId, modelId) {
   });
 }
 
+/*
+  This is needed when user clicks "Split Data" button in the split step
+
+  1. Create a split under the model (POST `/models/:modelId/split`)
+  2. This will create a split and assign it to the model
+  3. Once the model is assigned a split poll the model for an update on its status
+  4. Once the status is "Data Ready" or "Split Failed" update UI appropriately.
+
+*/
 function createSplitAndUpdateStatus() {
   let {model_create, experiments_create} = createExperimentStore.getState();
   let {directives, schema, modelId} = model_create;
@@ -356,6 +366,18 @@ function applyDirectives(workspaceId, directives) {
     });
 }
 
+/*
+  This is needed when user has already created an experiment but is still in dataprep stage.
+  On refresh in this state we need to go back to the same view the user left.
+
+  1. Fetch the experiments details
+  2. Get directives and srcpath from the details
+  3. Create a workspace with the srcpath
+  4. Once created execute it with the list of directives
+  5. Once the workspace is setup and update the stores.
+
+  After step5 CreateView will pass the workspaceid to DataPrepConnection which will render the browser.
+*/
 const getExperimentForEdit = (experimentId) => {
   setExperimentLoading();
   let experiment;
@@ -399,6 +421,20 @@ const getExperimentForEdit = (experimentId) => {
     });
 };
 
+/*
+  This is needed when the user has created the model but still is in the split stage.
+  On refresh in this state we need to go back to the same view the user left.
+
+  1. Fetch the experiments details
+  2. Get directives and srcpath from the details
+  3. Create a workspace with the srcpath
+  4. Once created execute it with the list of directives
+  5. Once the workspace is setup and update the stores.
+  6. Check if the model already has a splitid
+  7. If yes fetch split details and update the store
+
+  After step 7 UI will land in the split stage with all the split details.
+*/
 const getExperimentModelSplitForCreate = (experimentId, modelId) => {
   setExperimentLoading();
   let experiment, model;
