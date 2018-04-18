@@ -16,7 +16,6 @@
 
 import React, {Component} from 'react';
 import PropTypes from 'prop-types';
-import {MyCloudApi} from 'api/cloud';
 import {getCurrentNamespace} from 'services/NamespaceStore';
 import {Link} from 'react-router-dom';
 import T from 'i18n-react';
@@ -27,7 +26,10 @@ import orderBy from 'lodash/orderBy';
 import ViewAllLabel from 'components/ViewAllLabel';
 import Popover from 'components/Popover';
 import ConfirmationModal from 'components/ConfirmationModal';
-import fileDownload from 'js-file-download';
+import ProfilesStore from 'components/Cloud/Profiles/Store';
+import {getProfiles, exportProfile, deleteProfile} from 'components/Cloud/Profiles/Store/ActionCreator';
+import {connect, Provider} from 'react-redux';
+
 require('./ListView.scss');
 
 const PREFIX = 'features.Cloud.Profiles.ListView';
@@ -87,11 +89,9 @@ const SORT_METHODS = {
 
 const NUM_PROFILES_TO_SHOW = 5;
 
-export default class ProfilesListView extends Component {
+class ProfilesListView extends Component {
   state = {
-    profiles: [],
-    error: null,
-    loading: true,
+    profiles: this.props.profiles,
     viewAll: false,
     sortMethod: SORT_METHODS.asc,
     sortColumn: PROFILES_TABLE_HEADERS[1].property,
@@ -102,34 +102,21 @@ export default class ProfilesListView extends Component {
 
   static propTypes = {
     namespace: PropTypes.string.isRequired,
-    onChange: PropTypes.func
+    profiles: PropTypes.array,
+    error: PropTypes.any,
+    loading: PropTypes.bool
   };
 
   componentDidMount() {
-    this.getProfiles();
+    getProfiles(this.props.namespace);
   }
 
-  getProfiles() {
-    MyCloudApi
-      .list({ namespace: this.props.namespace })
-      .subscribe(
-        profiles => {
-          this.setState({
-            profiles,
-            loading: false
-          }, () => {
-            if (typeof this.props.onChange === 'function') {
-              this.props.onChange(profiles);
-            }
-          });
-        },
-        err => {
-          this.setState({
-            error: err,
-            loading: false
-          });
-        }
-      );
+  componentWillReceiveProps(nextProps) {
+    if (nextProps.profiles.length !== this.state.profiles.length) {
+      this.setState({
+        profiles: orderBy(nextProps.profiles, this.state.sortColumn, this.state.sortMethod)
+      });
+    }
   }
 
   toggleViewAll = () => {
@@ -155,32 +142,9 @@ export default class ProfilesListView extends Component {
     });
   };
 
-  exportProfile = (profile) => {
-    MyCloudApi
-      .get({
-        namespace: this.props.namespace,
-        profile
-      })
-      .subscribe(
-        (res) => {
-          let json = JSON.stringify(res, null, 2);
-          let fileName = `${profile}-profile.json`;
-          fileDownload(json, fileName);
-        },
-        (err) => {
-          this.setState({ error: err });
-        }
-      );
-  };
-
   deleteProfile = (profile) => {
-    MyCloudApi
-      .delete({
-        namespace: this.props.namespace,
-        profile
-      })
+    deleteProfile(this.props.namespace, profile)
       .subscribe(() => {
-        this.getProfiles();
         this.setState({
           profileToDelete: null,
           deleteErrMsg: '',
@@ -336,15 +300,15 @@ export default class ProfilesListView extends Component {
                     enableInteractionInPopover={true}
                   >
                     <ul>
-                      <li onClick={this.exportProfile.bind(this, profile.name)}>
-                        Export
+                      <li onClick={exportProfile.bind(this, this.props.namespace, profile.name)}>
+                        {T.translate(`${PREFIX}.export`)}
                       </li>
                       <hr />
                       <li
                         className="delete-action"
                         onClick={this.toggleDeleteConfirmationModal.bind(this, profile.name)}
                       >
-                        Delete
+                        {T.translate('commons.delete')}
                       </li>
                     </ul>
                   </Popover>
@@ -380,17 +344,17 @@ export default class ProfilesListView extends Component {
   }
 
   render() {
-    if (this.state.loading) {
+    if (this.props.loading) {
       return (
         <div className="text-xs-center">
           <LoadingSVG />
         </div>
       );
     }
-    if (this.state.error) {
+    if (this.props.error) {
       return (
         <div className="text-danger">
-          {JSON.stringify(this.state.error, null, 2)}
+          {JSON.stringify(this.props.error, null, 2)}
         </div>
       );
     }
@@ -413,4 +377,22 @@ export default class ProfilesListView extends Component {
       </div>
     );
   }
+}
+
+const mapStateToProps = (state) => {
+  return {
+    profiles: state.profiles,
+    loading: state.loading,
+    error: state.error
+  };
+};
+
+const ConnectedProfilesListView = connect(mapStateToProps)(ProfilesListView);
+
+export default function ProfilesCreateViewFn({...props}) {
+  return (
+    <Provider store={ProfilesStore}>
+      <ConnectedProfilesListView {...props} />
+    </Provider>
+  );
 }
