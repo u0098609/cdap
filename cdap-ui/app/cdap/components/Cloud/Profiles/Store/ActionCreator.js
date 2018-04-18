@@ -17,6 +17,7 @@
 import ProfilesStore, {PROFILES_ACTIONS} from 'components/Cloud/Profiles/Store';
 import {MyCloudApi} from 'api/cloud';
 import fileDownload from 'js-file-download';
+import {objectQuery} from 'services/helpers';
 
 export const getProfiles = (namespace) => {
   ProfilesStore.dispatch({
@@ -74,4 +75,46 @@ export const deleteProfile = (namespace, profile) => {
     getProfiles(namespace);
   });
   return deleteObservable;
+};
+
+export const importProfile = (namespace, e) => {
+  if (!objectQuery(e, 'target', 'files', 0)) {
+    return;
+  }
+
+  let uploadedFile = e.target.files[0];
+  let reader = new FileReader();
+  reader.readAsText(uploadedFile, 'UTF-8');
+
+  reader.onload =  (evt) => {
+    let jsonSpec = evt.target.result;
+    try {
+      jsonSpec = JSON.parse(jsonSpec);
+    } catch (error) {
+      ProfilesStore.dispatch({
+        type: PROFILES_ACTIONS.SET_ERROR,
+        payload: {
+          error: error.message || error
+        }
+      });
+      return;
+    }
+
+    MyCloudApi
+      .create({
+        namespace,
+        profile: jsonSpec.name
+      }, jsonSpec)
+      .subscribe(
+        () => {
+          getProfiles(namespace);
+        },
+        (error) => {
+          ProfilesStore.dispatch({
+            type: PROFILES_ACTIONS.SET_ERROR,
+            payload: { error }
+          });
+        }
+      );
+  };
 };

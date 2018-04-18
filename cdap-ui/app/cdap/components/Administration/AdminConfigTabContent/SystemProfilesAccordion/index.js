@@ -22,7 +22,9 @@ import classnames from 'classnames';
 import IconSVG from 'components/IconSVG';
 import T from 'i18n-react';
 import ProfilesStore from 'components/Cloud/Profiles/Store';
+import {importProfile} from 'components/Cloud/Profiles/Store/ActionCreator';
 import {connect, Provider} from 'react-redux';
+import {Label, Input} from 'reactstrap';
 require('./SystemProfilesAccordion.scss');
 
 const PREFIX = 'features.Administration.Accordions.SystemProfiles';
@@ -75,6 +77,18 @@ class SystemProfilesAccordion extends Component {
         >
           {T.translate(`${PREFIX}.create`)}
         </Link>
+        <Label
+          className="import-profile-label"
+          for="import-profile"
+        >
+          {T.translate(`${PREFIX}.import`)}
+          <Input
+            type="file"
+            accept='.json'
+            id="import-profile"
+            onChange={importProfile.bind(this, 'system')}
+          />
+        </Label>
         <ProfilesListView namespace='system' />
       </div>
     );

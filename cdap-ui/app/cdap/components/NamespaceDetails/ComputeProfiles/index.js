@@ -21,7 +21,9 @@ import {getCurrentNamespace} from 'services/NamespaceStore';
 import {Link} from 'react-router-dom';
 import ProfilesListView from 'components/Cloud/Profiles/ListView';
 import ProfilesStore from 'components/Cloud/Profiles/Store';
+import {importProfile} from 'components/Cloud/Profiles/Store/ActionCreator';
 import {connect, Provider} from 'react-redux';
+import {Label, Input} from 'reactstrap';
 
 require('./ComputeProfiles.scss');
 
@@ -49,6 +51,19 @@ class NamespaceDetailsComputeProfiles extends Component {
         >
           {T.translate(`${PREFIX}.create`)}
         </Link>
+        <span> | </span>
+        <Label
+          className="import-profile-label"
+          for="import-profile"
+        >
+          {T.translate(`${PREFIX}.import`)}
+          <Input
+            type="file"
+            accept='.json'
+            id="import-profile"
+            onChange={importProfile.bind(this, getCurrentNamespace())}
+          />
+        </Label>
         {
           this.props.profilesCount ?
             (

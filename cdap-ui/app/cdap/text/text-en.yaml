@@ -147,6 +147,7 @@ features:
         description: Manage compute profiles available to launch programs in all namespaces
         label: "System Compute Profiles "
         labelWithCount: "System Compute Profiles ({count})"
+        import: Import
     Component-Overview:
       emptyMessage: Available only in Distributed mode
       headers:
@@ -1343,10 +1344,11 @@ features:
     version: "Version :"
   NamespaceDetails:
     computeProfiles:
-      create: Create New Profile
+      create: Create New
       description: Select a row to view details about the compute profile
       label: Compute Profiles
       labelWithCount: Compute Profiles ({count})
+      import: Import
     edit: Edit
     entityCounts:
       customApps: Custom Apps
