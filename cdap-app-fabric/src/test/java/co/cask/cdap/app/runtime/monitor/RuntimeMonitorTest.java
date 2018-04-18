@@ -25,6 +25,7 @@ import co.cask.cdap.api.messaging.TopicAlreadyExistsException;
 import co.cask.cdap.app.runtime.ProgramStateWriter;
 import co.cask.cdap.client.config.ClientConfig;
 import co.cask.cdap.client.config.ConnectionConfig;
+import co.cask.cdap.common.app.RunIds;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.utils.Tasks;
@@ -122,11 +123,10 @@ public class RuntimeMonitorTest {
     // change topic name because cdap config is different than runtime config
     cConfCopy.set(Constants.AppFabric.PROGRAM_STATUS_EVENT_TOPIC, "cdap-programStatus");
 
-    RuntimeMonitor runtimeMonitor = new RuntimeMonitor(new ProgramRunId("default", "app1", ProgramType.WORKFLOW,
-                                                                        "myworkflow",
-                                                                        UUID.randomUUID().toString()), cConfCopy,
-                                                       messagingContext.getMessagePublisher(),
-                                                       clientConfigBuilder.build());
+    RuntimeMonitor runtimeMonitor = new RuntimeMonitor(
+      NamespaceId.DEFAULT.app("app1").workflow("myworkflow").run(RunIds.generate()),
+      cConfCopy, messagingService, clientConfigBuilder.build());
+
     runtimeMonitor.startAndWait();
     // use different configuration for verification
     verifyPublishedMessages(2, cConfCopy);

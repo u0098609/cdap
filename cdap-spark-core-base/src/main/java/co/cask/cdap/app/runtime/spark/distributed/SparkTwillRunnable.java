@@ -35,7 +35,14 @@ import org.apache.twill.api.TwillRunnable;
 /**
  * A {@link TwillRunnable} wrapper for {@link ProgramRunner} that runs spark.
  */
-class SparkTwillRunnable extends AbstractProgramTwillRunnable<ProgramRunner> {
+public class SparkTwillRunnable extends AbstractProgramTwillRunnable<ProgramRunner> {
+
+  /**
+   * Main method for the remote execution mode.
+   */
+  public static void main(String[] args) throws Exception {
+    new SparkTwillRunnable(getRunnableNameFromEnv()).doMain();
+  }
 
   SparkTwillRunnable(String name) {
     super(name);

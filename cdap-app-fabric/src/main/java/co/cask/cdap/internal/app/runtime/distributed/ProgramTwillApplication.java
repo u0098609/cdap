@@ -16,7 +16,8 @@
 
 package co.cask.cdap.internal.app.runtime.distributed;
 
-import co.cask.cdap.proto.id.ProgramId;
+import co.cask.cdap.app.runtime.ProgramOptions;
+import co.cask.cdap.proto.id.ProgramRunId;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 import org.apache.twill.api.EventHandler;
@@ -37,19 +38,21 @@ public final class ProgramTwillApplication implements TwillApplication {
 
   private static final Logger LOG = LoggerFactory.getLogger(ProgramTwillApplication.class);
 
-  private final ProgramId programId;
+  private final ProgramRunId programRunId;
+  private final ProgramOptions programOptions;
   private final TwillSpecification twillSpec;
 
-  ProgramTwillApplication(ProgramId programId,
+  ProgramTwillApplication(ProgramRunId programRunId, ProgramOptions programOptions,
                           Map<String, RunnableDefinition> runnables,
                           Iterable<Set<String>> launchOrder,
                           Map<String, LocalizeResource> localizeResources,
                           EventHandler eventHandler) {
-    this.programId = programId;
+    this.programRunId = programRunId;
+    this.programOptions = programOptions;
 
     // Build the TwillSpecification
     Builder.MoreRunnable moreRunnable = Builder.with()
-      .setName(TwillAppNames.toTwillAppName(programId))
+      .setName(TwillAppNames.toTwillAppName(programRunId.getParent()))
       .withRunnable();
 
     // Add runnable and resources for each of them
@@ -88,10 +91,17 @@ public final class ProgramTwillApplication implements TwillApplication {
   }
 
   /**
-   * Returns the program id of the program represented by this {@link TwillApplication}.
+   * Returns the {@link ProgramRunId} of the program run represented by this {@link TwillApplication}.
    */
-  public ProgramId getProgramId() {
-    return programId;
+  public ProgramRunId getProgramRunId() {
+    return programRunId;
+  }
+
+  /**
+   * Returns the {@link ProgramOptions} of the program run represented by this {@link TwillApplication}.
+   */
+  public ProgramOptions getProgramOptions() {
+    return programOptions;
   }
 
   @Override
@@ -107,7 +117,7 @@ public final class ProgramTwillApplication implements TwillApplication {
     Builder.LocalFileAdder fileAdder;
     Builder.MoreFile moreFile = null;
     for (Map.Entry<String, LocalizeResource> entry : localizeResources.entrySet()) {
-      LOG.debug("Localizing file for {}: {} {}", programId, entry.getKey(), entry.getValue());
+      LOG.debug("Localizing file for {}: {} {}", programRunId, entry.getKey(), entry.getValue());
       fileAdder = (moreFile == null) ? builder.withLocalFiles() : moreFile;
       moreFile = fileAdder.add(entry.getKey(), entry.getValue().getURI(), entry.getValue().isArchive());
     }

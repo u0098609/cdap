@@ -20,7 +20,14 @@ import co.cask.cdap.internal.app.runtime.batch.MapReduceProgramRunner;
 /**
  * Wraps {@link MapReduceProgramRunner} to be run via Twill
  */
-final class MapReduceTwillRunnable extends AbstractProgramTwillRunnable<MapReduceProgramRunner> {
+public final class MapReduceTwillRunnable extends AbstractProgramTwillRunnable<MapReduceProgramRunner> {
+
+  /**
+   * Main method for the remote execution mode.
+   */
+  public static void main(String[] args) throws Exception {
+    new MapReduceTwillRunnable(getRunnableNameFromEnv()).doMain();
+  }
 
   MapReduceTwillRunnable(String name) {
     super(name);

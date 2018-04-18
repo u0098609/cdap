@@ -166,6 +166,7 @@ public class DistributedProgramContainerModule extends AbstractModule {
     modules.add(new DataFabricModules(generateClientId(programRunId, instanceId)).getDistributedModules());
     modules.add(new DataSetsModules().getDistributedModules());
     modules.add(new NamespaceClientRuntimeModule().getDistributedModules());
+    modules.add(new DistributedProgramStreamModule());
   }
 
   private void addIsolatedModules(List<Module> modules) {

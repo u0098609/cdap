@@ -302,7 +302,18 @@ public class ProgramNotificationSubscriberService extends AbstractNotificationSu
         try {
           SecurityRequestContext.setUserId(userId);
           try {
-            programLifecycleService.startInternal(programDescriptor, programOptions, programRunId);
+            // Update the ProgramOptions system arguments to include the cluster information
+            Map<String, String> systemArgs = new HashMap<>(programOptions.getArguments().asMap());
+            systemArgs.put(ProgramOptionConstants.CLUSTER, properties.get(ProgramOptionConstants.CLUSTER));
+            if (properties.containsKey(ProgramOptionConstants.CLUSTER_KEY_INFO)) {
+              systemArgs.put(ProgramOptionConstants.CLUSTER_KEY_INFO,
+                             properties.get(ProgramOptionConstants.CLUSTER_KEY_INFO));
+            }
+
+            ProgramOptions newProgramOptions = new SimpleProgramOptions(programOptions.getProgramId(),
+                                                                        new BasicArguments(systemArgs),
+                                                                        programOptions.getUserArguments());
+            programLifecycleService.startInternal(programDescriptor, newProgramOptions, programRunId);
           } catch (Exception e) {
             programStateWriter.error(programRunId, e);
           }

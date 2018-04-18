@@ -29,7 +29,14 @@ import org.apache.twill.api.TwillRunnable;
 /**
  * The {@link TwillRunnable} for running a workflow driver.
  */
-final class WorkflowTwillRunnable extends AbstractProgramTwillRunnable<WorkflowProgramRunner> {
+public final class WorkflowTwillRunnable extends AbstractProgramTwillRunnable<WorkflowProgramRunner> {
+
+  /**
+   * Main method for the remote execution mode.
+   */
+  public static void main(String[] args) throws Exception {
+    new WorkflowTwillRunnable(getRunnableNameFromEnv()).doMain();
+  }
 
   WorkflowTwillRunnable(String name) {
     super(name);

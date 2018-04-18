@@ -47,6 +47,7 @@ import co.cask.cdap.internal.app.runtime.SystemArguments;
 import co.cask.cdap.internal.app.runtime.codec.ArgumentsCodec;
 import co.cask.cdap.internal.app.runtime.codec.ProgramOptionsCodec;
 import co.cask.cdap.logging.context.LoggingContextHelper;
+import co.cask.cdap.proto.id.ProgramRunId;
 import co.cask.cdap.security.TokenSecureStoreRenewer;
 import co.cask.cdap.security.impersonation.Impersonator;
 import co.cask.cdap.security.store.SecureStoreUtils;
@@ -54,7 +55,6 @@ import co.cask.cdap.spi.hbase.HBaseDDLExecutor;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -236,13 +236,13 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
       // Update the ProgramOptions to carry program and runtime information necessary to reconstruct the program
       // and runs it in the remote container
       ProgramOptions options = updateProgramOptions(
-        oldOptions, localizeResources, DirUtils.createTempDir(tempDir), ImmutableMap.of(
+        oldOptions, localizeResources, DirUtils.createTempDir(tempDir),
           ProgramOptionConstants.PROGRAM_JAR, programJarName,
           ProgramOptionConstants.EXPANDED_PROGRAM_JAR, expandedProgramJarName,
           ProgramOptionConstants.HADOOP_CONF_FILE, HADOOP_CONF_FILE_NAME,
           ProgramOptionConstants.CDAP_CONF_FILE, CDAP_CONF_FILE_NAME,
           ProgramOptionConstants.APP_SPEC_FILE, APP_SPEC_FILE_NAME
-        ));
+        );
 
       // Localize the serialized program options
       localizeResources.put(PROGRAM_OPTIONS_FILE_NAME,
@@ -253,7 +253,8 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
       Callable<ProgramController> callable = new Callable<ProgramController>() {
         @Override
         public ProgramController call() throws Exception {
-          ProgramTwillApplication twillApplication = new ProgramTwillApplication(program.getId(),
+          ProgramRunId programRunId = program.getId().run(ProgramRunners.getRunId(options));
+          ProgramTwillApplication twillApplication = new ProgramTwillApplication(programRunId, options,
                                                                                  launchConfig.getRunnables(),
                                                                                  launchConfig.getLaunchOrder(),
                                                                                  localizeResources,
@@ -468,12 +469,31 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
     saveContextCancellable.cancel();
   }
 
-  private ProgramOptions updateProgramOptions(ProgramOptions options, Map<String, LocalizeResource> localizeResources,
-                                              File tempDir, Map<String, String> extraSystemArgs) throws IOException {
+  /**
+   * Creates a new instance of {@link ProgramOptions} with artifact localization information and with
+   * extra system arguments, while maintaining other fields of the given {@link ProgramOptions}.
+   *
+   * @param options the original {@link ProgramOptions}.
+   * @param localizeResources a {@link Map} of {@link LocalizeResource} to be localized to the remote container
+   * @param tempDir a local temporary directory for creating files for artifact localization.
+   * @param extraSystemArgs a set of extra system arguments to be added/updated
+   * @return a new instance of {@link ProgramOptions}
+   * @throws IOException if failed to create local copy of artifact files
+   */
+  private ProgramOptions updateProgramOptions(ProgramOptions options,
+                                              Map<String, LocalizeResource> localizeResources,
+                                              File tempDir, String...extraSystemArgs) throws IOException {
+    if (extraSystemArgs.length % 2 != 0) {
+      // This shouldn't happen.
+      throw new IllegalArgumentException("Number of extra system arguments must be even in the form of k1,v1,k2,v2...");
+    }
+
     Arguments systemArgs = options.getArguments();
 
     Map<String, String> newSystemArgs = new HashMap<>(systemArgs.asMap());
-    newSystemArgs.putAll(extraSystemArgs);
+    for (int i = 0; i < extraSystemArgs.length; i += 2) {
+      newSystemArgs.put(extraSystemArgs[i], extraSystemArgs[i + 1]);
+    }
 
     if (systemArgs.hasOption(ProgramOptionConstants.PLUGIN_DIR)) {
       File localDir = new File(systemArgs.getOption(ProgramOptionConstants.PLUGIN_DIR));

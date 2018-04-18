@@ -38,8 +38,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.twill.api.ServiceAnnouncer;
 import org.junit.Test;
 
-import java.util.Optional;
-
 /**
  * Tests for guice module used in {@link SparkTwillRunnable}.
  */
@@ -52,8 +50,8 @@ public class SparkTwillRunnableModuleTest {
     for (ClusterMode mode : ClusterMode.values()) {
       Module module = new SparkTwillRunnable("spark") {
         @Override
-        protected Optional<ServiceAnnouncer> getServiceAnnouncer() {
-          return Optional.of(new MockTwillContext());
+        protected ServiceAnnouncer getServiceAnnouncer() {
+          return new MockTwillContext();
         }
       }.createModule(CConfiguration.create(), new Configuration(),
                      createProgramOptions(programRunId, mode), programRunId);

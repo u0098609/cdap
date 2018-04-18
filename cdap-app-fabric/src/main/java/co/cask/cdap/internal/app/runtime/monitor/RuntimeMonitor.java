@@ -24,6 +24,8 @@ import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.logging.LogSamplers;
 import co.cask.cdap.common.logging.Loggers;
 import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
+import co.cask.cdap.messaging.MessagingService;
+import co.cask.cdap.messaging.context.MultiThreadMessagingContext;
 import co.cask.cdap.proto.Notification;
 import co.cask.cdap.proto.ProgramRunStatus;
 import co.cask.cdap.proto.id.NamespaceId;
@@ -75,11 +77,11 @@ public class RuntimeMonitor extends AbstractExecutionThreadService {
   private volatile boolean stopped;
   private boolean programFinished;
 
-  public RuntimeMonitor(ProgramRunId programId, CConfiguration cConf, MessagePublisher messagePublisher,
-                        ClientConfig clientConfig) {
+  public RuntimeMonitor(ProgramRunId programId, CConfiguration cConf,
+                        MessagingService messagingService, ClientConfig clientConfig) {
     this.programId = programId;
     this.cConf = cConf;
-    this.messagePublisher = messagePublisher;
+    this.messagePublisher = new MultiThreadMessagingContext(messagingService).getMessagePublisher();
     this.clientConfig = clientConfig;
     this.restClient = new RESTClient(clientConfig);
     this.limit = cConf.getInt(Constants.RuntimeMonitor.BATCH_LIMIT);
@@ -126,6 +128,7 @@ public class RuntimeMonitor extends AbstractExecutionThreadService {
 
           if (processResponse(monitorResponses) == 0 && programFinished) {
             triggerRuntimeShutdown();
+            break;
           }
         } catch (Exception e) {
           OUTAGE_LOG.warn("Failed to fetch monitoring data from program {}, run {}. Will be retried in next iteration.",
@@ -136,13 +139,20 @@ public class RuntimeMonitor extends AbstractExecutionThreadService {
     } catch (InterruptedException e) {
       // Interruption means stopping the service.
     }
+
+    // Clear the interrupt flag
+    Thread.interrupted();
+
+    if (stopped) {
+      // TODO: Kill the remote program execute on explicit stop on this monitor
+    }
   }
 
   private int processResponse(Map<String, List<MonitorMessage>> monitorResponses) throws Exception {
     int count = 0;
     for (Map.Entry<String, List<MonitorMessage>> monitorResponse : monitorResponses.entrySet()) {
       if (monitorResponse.getKey().equals(Constants.AppFabric.PROGRAM_STATUS_EVENT_TOPIC)) {
-        setIsRuntimeInactive(monitorResponse.getValue());
+        programFinished = programFinished || isProgramFinished(monitorResponse.getValue());
       }
       publish(monitorResponse.getKey(), monitorResponse.getValue());
       count += monitorResponse.getValue().size();
@@ -172,17 +182,17 @@ public class RuntimeMonitor extends AbstractExecutionThreadService {
     }
   }
 
-  private void setIsRuntimeInactive(List<MonitorMessage> monitorMessages) {
+  private boolean isProgramFinished(List<MonitorMessage> monitorMessages) {
     for (MonitorMessage message : monitorMessages) {
       Notification notification = GSON.fromJson(message.getMessage(), Notification.class);
       String programStatus = notification.getProperties().get(ProgramOptionConstants.PROGRAM_STATUS);
       if (programStatus.equals(ProgramRunStatus.COMPLETED.name()) ||
         programStatus.equals(ProgramRunStatus.FAILED.name()) ||
         programStatus.equals(ProgramRunStatus.KILLED.name())) {
-        programFinished = true;
-        break;
+        return true;
       }
     }
+    return false;
   }
 
   @Override

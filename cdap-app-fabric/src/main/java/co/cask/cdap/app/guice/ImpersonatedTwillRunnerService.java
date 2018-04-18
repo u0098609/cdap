@@ -78,7 +78,7 @@ final class ImpersonatedTwillRunnerService implements TwillRunnerService {
   @Override
   public TwillPreparer prepare(TwillApplication application) {
     if (application instanceof ProgramTwillApplication) {
-      ProgramId programId = ((ProgramTwillApplication) application).getProgramId();
+      ProgramId programId = ((ProgramTwillApplication) application).getProgramRunId().getParent();
       return new ImpersonatedTwillPreparer(delegate.prepare(application), impersonator, programId);
     }
     return delegate.prepare(application);

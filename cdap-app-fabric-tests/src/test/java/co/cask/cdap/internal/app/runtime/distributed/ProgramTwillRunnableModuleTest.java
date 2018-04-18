@@ -37,8 +37,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.twill.api.ServiceAnnouncer;
 import org.junit.Test;
 
-import java.util.Optional;
-
 /**
  * Tests for guice modules used in various {@link AbstractProgramTwillRunnable}.
  */
@@ -58,8 +56,8 @@ public class ProgramTwillRunnableModuleTest {
     ProgramRunId programRunId = NamespaceId.DEFAULT.app("test").service("service").run(RunIds.generate());
     Module module = new ServiceTwillRunnable("service") {
       @Override
-      protected Optional<ServiceAnnouncer> getServiceAnnouncer() {
-        return Optional.of(new MockTwillContext());
+      protected ServiceAnnouncer getServiceAnnouncer() {
+        return new MockTwillContext();
       }
     }.createModule(CConfiguration.create(), new Configuration(), createProgramOptions(programRunId), programRunId);
     Guice.createInjector(module).getInstance(ServiceProgramRunner.class);

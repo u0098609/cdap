@@ -21,10 +21,8 @@ import co.cask.cdap.api.metrics.MetricsCollectionService;
 import co.cask.cdap.api.security.store.SecureStore;
 import co.cask.cdap.api.security.store.SecureStoreManager;
 import co.cask.cdap.api.spark.dynamic.SparkInterpreter;
-import co.cask.cdap.app.guice.ClusterMode;
 import co.cask.cdap.app.guice.DistributedArtifactManagerModule;
 import co.cask.cdap.app.guice.DistributedProgramContainerModule;
-import co.cask.cdap.app.guice.DistributedProgramStreamModule;
 import co.cask.cdap.app.program.DefaultProgram;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.program.ProgramDescriptor;
@@ -325,11 +323,6 @@ public final class SparkRuntimeContextProvider {
                   .setClusterMode(ProgramRunners.getClusterMode(programOptions))
                   .build());
     modules.add(new DistributedArtifactManagerModule());
-
-    // Support stream when running on premise
-    if (ProgramRunners.getClusterMode(programOptions) == ClusterMode.ON_PREMISE) {
-      modules.add(new DistributedProgramStreamModule());
-    }
     return Guice.createInjector(modules);
   }
 
