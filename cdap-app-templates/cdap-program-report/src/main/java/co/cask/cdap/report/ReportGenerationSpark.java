@@ -35,6 +35,7 @@ import co.cask.cdap.report.proto.ReportList;
 import co.cask.cdap.report.proto.ReportStatus;
 import co.cask.cdap.report.proto.ReportStatusInfo;
 import co.cask.cdap.report.proto.ValueFilter;
+import co.cask.cdap.report.util.Constants;
 import co.cask.cdap.report.util.ReportField;
 import co.cask.cdap.report.util.ReportIds;
 import com.google.common.collect.ImmutableMap;
@@ -106,10 +107,6 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
     private static final String START_FILE = "_START";
     private static final String FAILURE_FILE = "_FAILURE";
     private static final AtomicBoolean EXECUTOR_SHUTDOWN = new AtomicBoolean();
-
-    public static final String REPORT_DIR = "reports";
-    public static final String COUNT_FILE = "COUNT";
-    public static final String SUCCESS_FILE = "_SUCCESS";
 
     private static ExecutorService reportGenerationExecutor;
 
@@ -224,7 +221,7 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
       }
       List<String> reportRecords = new ArrayList<>();
       long lineCount = 0;
-      Location reportDir = reportIdDir.append(REPORT_DIR);
+      Location reportDir = reportIdDir.append(Constants.LocationName.REPORT_DIR);
       // TODO: [CDAP-13290] reports should be in avro format instead of json text;
       // TODO: [CDAP-13291] need to support reading multiple report files
       Optional<Location> reportFile = reportDir.list().stream().filter(l -> l.getName().endsWith(".json")).findFirst();
@@ -249,7 +246,8 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
       }
       // Get the total number of records from the COUNT file
       String total =
-        new String(ByteStreams.toByteArray(reportIdDir.append(COUNT_FILE).getInputStream()), StandardCharsets.UTF_8);
+        new String(ByteStreams.toByteArray(reportIdDir.append(Constants.LocationName.COUNT_FILE).getInputStream()),
+                   StandardCharsets.UTF_8);
       responder.sendJson(200, new ReportContent(offset, limit, Integer.parseInt(total), reportRecords));
     }
 
@@ -414,7 +412,7 @@ public class ReportGenerationSpark extends AbstractExtendedSpark implements Java
      * @return status of the report generation
      */
     private static ReportStatus getReportStatus(Location reportIdDir) throws IOException {
-      if (reportIdDir.append(SUCCESS_FILE).exists()) {
+      if (reportIdDir.append(Constants.LocationName.SUCCESS_FILE).exists()) {
         return ReportStatus.COMPLETED;
       }
       if (reportIdDir.append(FAILURE_FILE).exists()) {

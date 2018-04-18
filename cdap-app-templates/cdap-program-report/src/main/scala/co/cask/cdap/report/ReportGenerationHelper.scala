@@ -18,7 +18,6 @@ package co.cask.cdap.report
 import java.io.{IOException, PrintWriter}
 import java.util.stream.Collectors
 
-import co.cask.cdap.report.ReportGenerationSpark.ReportSparkHandler
 import co.cask.cdap.report.proto.Sort.Order
 import co.cask.cdap.report.proto.{Sort, _}
 import co.cask.cdap.report.util.Constants
@@ -122,7 +121,7 @@ object ReportGenerationHelper {
     resultDf.persist()
     // Writing the DataFrame to JSON files requires a non-existing directory to write report files.
     // Create a non-existing directory location with name ReportSparkHandler.REPORT_DIR
-    val reportDir = reportIdDir.append(ReportSparkHandler.REPORT_DIR).toURI.toString;
+    val reportDir = reportIdDir.append(Constants.LocationName.REPORT_DIR).toURI.toString
     // TODO: [CDAP-13290] output reports as avro instead of json text files
     // TODO: [CDAP-13291] improve how the number of partitions is configured
     resultDf.coalesce(1).write.option("timestampFormat", "yyyy/MM/dd HH:mm:ss ZZ").json(reportDir)
@@ -130,17 +129,17 @@ object ReportGenerationHelper {
     // Write the total number of records in _SUCCESS file generated after successful report generation
     var writer: Option[PrintWriter] = None
     try {
-      val countFile = reportIdDir.append(ReportSparkHandler.COUNT_FILE)
+      val countFile = reportIdDir.append(Constants.LocationName.COUNT_FILE)
       countFile.createNew
       writer = Some(new PrintWriter(countFile.getOutputStream))
       writer.get.write(count.toString)
     } catch {
       case e: IOException => {
-        LOG.error("Failed to write to {} in {}", ReportSparkHandler.COUNT_FILE, reportIdDir.toURI.toString, e)
+        LOG.error("Failed to write to {} in {}", Constants.LocationName.COUNT_FILE, reportIdDir.toURI.toString, e)
         throw e
       }
     } finally if (writer.isDefined) writer.get.close()
-    reportIdDir.append(ReportSparkHandler.SUCCESS_FILE).createNew()
+    reportIdDir.append(Constants.LocationName.SUCCESS_FILE).createNew()
   }
 
   /**

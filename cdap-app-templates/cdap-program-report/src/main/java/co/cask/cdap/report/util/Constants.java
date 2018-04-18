@@ -19,7 +19,7 @@ package co.cask.cdap.report.util;
 /**
  * Constants used by the report generation app and file schema.
  */
-public class Constants {
+public final class Constants {
   public static final String NAMESPACE = "namespace";
   public static final String ARTIFACT_SCOPE = "artifact.scope";
   public static final String ARTIFACT_NAME = "artifact.name";
@@ -41,4 +41,13 @@ public class Constants {
   public static final String NUM_RECORDS_OUT = "numRecordsOut";
   public static final String TIME = "time";
   public static final String START_INFO = "startInfo";
+
+  /**
+   * Constants used as location names for report generation app.
+   */
+  public static final class LocationName {
+    public static final String REPORT_DIR = "reports";
+    public static final String COUNT_FILE = "COUNT";
+    public static final String SUCCESS_FILE = "_SUCCESS";
+  }
 }
