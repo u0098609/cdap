@@ -40,25 +40,34 @@ const BASEPATH = '/';
 const PREFIX = 'features.FileBrowser';
 
 export default class FileBrowser extends Component {
-  constructor(props) {
-    super(props);
 
-    this.state = {
-      contents: [],
-      path: '',
-      statePath: objectQuery(this.props, 'match', 'url') || '',
-      error: null,
-      loading: true,
-      search: '',
-      sort: 'name',
-      sortOrder: 'asc',
-      searchFocus: true
-    };
+  state = {
+    contents: [],
+    path: '',
+    statePath: objectQuery(this.props, 'match', 'url') || '',
+    error: null,
+    loading: true,
+    search: '',
+    sort: 'name',
+    sortOrder: 'asc',
+    searchFocus: true
+  };
 
-    this.handleSearch = this.handleSearch.bind(this);
-    this.preventPropagation = this.preventPropagation.bind(this);
-    this.goToPath = this.goToPath.bind(this);
-  }
+  static defaultProps = {
+    enableRouting: true,
+    scope: false
+  };
+
+  static propTypes = {
+    location: PropTypes.object,
+    match: PropTypes.object,
+    initialDirectoryPath: PropTypes.string,
+    noState: PropTypes.bool,
+    toggle: PropTypes.func.isRequired,
+    enableRouting: PropTypes.bool,
+    onWorkspaceCreate: PropTypes.func,
+    scope: PropTypes.oneOfType([PropTypes.bool, PropTypes.string])
+  };
 
   componentWillMount() {
     if (!this.props.enableRouting) {
@@ -103,7 +112,7 @@ export default class FileBrowser extends Component {
     return filePath;
   }
 
-  preventPropagation(e) {
+  preventPropagation = (e) => {
     if (this.props.enableRouting) {
       return;
     }
@@ -127,7 +136,7 @@ export default class FileBrowser extends Component {
     this.goToPath(hdfsPath);
   }
 
-  goToPath(path) {
+  goToPath = (path) => {
     this.setState({
       loading: true,
       path
@@ -172,7 +181,7 @@ export default class FileBrowser extends Component {
     });
   }
 
-  handleSearch(e) {
+  handleSearch = (e) => {
     this.setState({search: e.target.value});
   }
 
@@ -190,7 +199,7 @@ export default class FileBrowser extends Component {
   }
   ingestFile(content) {
     let namespace = NamespaceStore.getState().selectedNamespace;
-    let {scope = false} = this.props;
+    let {scope} = this.props;
     let params = {
       namespace,
       path: content.path,
@@ -551,17 +560,3 @@ export default class FileBrowser extends Component {
   }
 }
 
-FileBrowser.defaultProps = {
-  enableRouting: true
-};
-
-FileBrowser.propTypes = {
-  location: PropTypes.object,
-  match: PropTypes.object,
-  initialDirectoryPath: PropTypes.string,
-  noState: PropTypes.bool,
-  toggle: PropTypes.func.isRequired,
-  enableRouting: PropTypes.bool,
-  onWorkspaceCreate: PropTypes.func,
-  scope: PropTypes.oneOfType([PropTypes.bool, PropTypes.string])
-};
