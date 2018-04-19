@@ -106,8 +106,10 @@ public final class DistributedProgramRuntimeService extends AbstractProgramRunti
                                    // privileges needed for artifacts
                                    @Named(AppFabricServiceRuntimeModule.NOAUTH_ARTIFACT_REPO)
                                      ArtifactRepository noAuthArtifactRepository,
-                                   Impersonator impersonator, ProgramStateWriter programStateWriter) {
-    super(cConf, programRunnerFactory, noAuthArtifactRepository, programStateWriter);
+                                   Impersonator impersonator, ProgramStateWriter programStateWriter,
+                                   @Constants.AppFabric.RemoteExecution
+                                     Map<ProgramType, ProgramRunner> remoteRunners) {
+    super(cConf, programRunnerFactory, noAuthArtifactRepository, programStateWriter, remoteRunners);
     this.programRunnerFactory = programRunnerFactory;
     this.twillRunner = twillRunner;
     this.store = store;

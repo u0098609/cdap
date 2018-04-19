@@ -29,7 +29,7 @@ public final class MapReduceTwillRunnable extends AbstractProgramTwillRunnable<M
     new MapReduceTwillRunnable(getRunnableNameFromEnv()).doMain();
   }
 
-  MapReduceTwillRunnable(String name) {
+  public MapReduceTwillRunnable(String name) {
     super(name);
   }
 }

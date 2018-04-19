@@ -16,6 +16,7 @@
 
 package co.cask.cdap.internal.app.runtime.distributed;
 
+import co.cask.cdap.app.guice.ClusterMode;
 import co.cask.cdap.app.runtime.ProgramOptions;
 import co.cask.cdap.common.app.RunIds;
 import co.cask.cdap.common.conf.CConfiguration;
@@ -95,7 +96,8 @@ public class ProgramTwillRunnableModuleTest {
                                     new BasicArguments(ImmutableMap.of(
                                       ProgramOptionConstants.INSTANCE_ID, "0",
                                       ProgramOptionConstants.PRINCIPAL, "principal",
-                                      ProgramOptionConstants.RUN_ID, programRunId.getRun())),
+                                      ProgramOptionConstants.RUN_ID, programRunId.getRun(),
+                                      ProgramOptionConstants.CLUSTER_MODE, ClusterMode.ON_PREMISE.name())),
                                     new BasicArguments());
   }
 }

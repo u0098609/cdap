@@ -85,10 +85,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Service;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.google.inject.Key;
 import com.google.inject.Module;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.counters.Limits;
 import org.apache.tephra.inmemory.InMemoryTransactionService;
+import org.apache.twill.api.TwillRunnerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -129,6 +131,7 @@ public class StandaloneMain {
   private final AuthorizerInstantiator authorizerInstantiator;
   private final MessagingService messagingService;
   private final OperationalStatsService operationalStatsService;
+  private final TwillRunnerService remoteExecutionTwillRunnerService;
 
   private ExternalAuthenticationServer externalAuthenticationServer;
   private ExploreExecutorService exploreExecutorService;
@@ -160,6 +163,8 @@ public class StandaloneMain {
     serviceStore = injector.getInstance(ServiceStore.class);
     streamService = injector.getInstance(StreamService.class);
     operationalStatsService = injector.getInstance(OperationalStatsService.class);
+    remoteExecutionTwillRunnerService = injector.getInstance(Key.get(TwillRunnerService.class,
+                                                                     Constants.AppFabric.RemoteExecution.class));
 
     if (cConf.getBoolean(DISABLE_UI, false)) {
       userInterfaceService = null;
@@ -263,6 +268,7 @@ public class StandaloneMain {
     wranglerAppCreationService.startAndWait();
 
     operationalStatsService.startAndWait();
+    remoteExecutionTwillRunnerService.start();
 
     String protocol = sslEnabled ? "https" : "http";
     int dashboardPort = sslEnabled ?
@@ -292,6 +298,7 @@ public class StandaloneMain {
       //  shut down router to stop all incoming traffic
       router.stopAndWait();
 
+      remoteExecutionTwillRunnerService.stop();
       operationalStatsService.stopAndWait();
 
       // now the stream writer and the explore service (they need tx)

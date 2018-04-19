@@ -17,6 +17,7 @@ package co.cask.cdap.app.guice;
 
 import co.cask.cdap.common.runtime.RuntimeModule;
 import com.google.inject.Module;
+import com.google.inject.util.Modules;
 
 /**
  *
@@ -25,16 +26,16 @@ public final class ProgramRunnerRuntimeModule extends RuntimeModule {
 
   @Override
   public Module getInMemoryModules() {
-    return new InMemoryProgramRunnerModule();
+    return Modules.combine(new InMemoryProgramRunnerModule(), new RemoteExecutionProgramRunnerModule());
   }
 
   @Override
   public Module getStandaloneModules() {
-    return new InMemoryProgramRunnerModule();
+    return Modules.combine(new InMemoryProgramRunnerModule(), new RemoteExecutionProgramRunnerModule());
   }
 
   @Override
   public Module getDistributedModules() {
-    return new DistributedProgramRunnerModule();
+    return Modules.combine(new DistributedProgramRunnerModule(), new RemoteExecutionProgramRunnerModule());
   }
 }

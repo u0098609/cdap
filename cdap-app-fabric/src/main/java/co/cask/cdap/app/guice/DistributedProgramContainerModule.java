@@ -58,7 +58,7 @@ import com.google.inject.Module;
 import com.google.inject.Scopes;
 import com.google.inject.util.Modules;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.tephra.TransactionSystemClient;
+import org.apache.tephra.runtime.TransactionInMemoryModule;
 import org.apache.twill.api.ServiceAnnouncer;
 
 import java.util.ArrayList;
@@ -173,6 +173,7 @@ public class DistributedProgramContainerModule extends AbstractModule {
     // Uses the in memory dataset framework. We just use it for dataset metadata, not really need the dataset service.
     modules.add(new DataSetsModules().getInMemoryModules());
     modules.add(new SystemDatasetRuntimeModule().getInMemoryModules());
+    modules.add(new TransactionInMemoryModule());
 
     // In isolated mode, ignore the namespace mapping
     modules.add(Modules.override(new LocationRuntimeModule().getDistributedModules()).with(new AbstractModule() {
@@ -194,7 +195,6 @@ public class DistributedProgramContainerModule extends AbstractModule {
         });
 
         // Bind to Unsupported class implementations for features that are not supported in isolated cluster mode
-        bind(TransactionSystemClient.class).to(UnsupportedTransactionSystemClient.class);
         bind(StreamAdmin.class).to(UnsupportedStreamAdmin.class);
         bind(StreamCoordinatorClient.class).to(InMemoryStreamCoordinatorClient.class);
       }

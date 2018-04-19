@@ -71,8 +71,8 @@ public class RemoteExecutionTwillRunnerService implements TwillRunnerService {
   private Path cachePath;
 
   @Inject
-  public RemoteExecutionTwillRunnerService(CConfiguration cConf, Configuration hConf,
-                                           LocationFactory locationFactory, MessagingService messagingService) {
+  RemoteExecutionTwillRunnerService(CConfiguration cConf, Configuration hConf,
+                                    LocationFactory locationFactory, MessagingService messagingService) {
     this.cConf = cConf;
     this.hConf = hConf;
     this.locationFactory = locationFactory;
@@ -126,7 +126,10 @@ public class RemoteExecutionTwillRunnerService implements TwillRunnerService {
     try {
       Arguments systemArgs = programOptions.getArguments();
       Cluster cluster = GSON.fromJson(systemArgs.getOption(ProgramOptionConstants.CLUSTER), Cluster.class);
-      Node masterNode = cluster.getNodes().stream().findFirst().orElseThrow(
+
+      Node masterNode = cluster.getNodes().stream()
+        .filter(node -> "master".equals(node.getProperties().get("type")))
+        .findFirst().orElseThrow(
         () -> new IllegalArgumentException("Missing master node information for the cluster " + cluster.getName()));
 
       if (!systemArgs.hasOption(ProgramOptionConstants.CLUSTER_KEY_INFO)) {

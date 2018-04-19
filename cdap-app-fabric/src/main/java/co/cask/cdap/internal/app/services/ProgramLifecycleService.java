@@ -301,9 +301,8 @@ public class ProgramLifecycleService {
     // Set the ClusterMode. If it is DEFAULT profile, then it is ON_PREMISE, otherwise is ISOLATED
     // This should probably move into the provisioner later once we have a better contract for the
     // provisioner to actually pick what launching mechanism it wants to use.
-//    systemArgs.put(ProgramOptionConstants.CLUSTER_MODE,
-//                   (ProfileId.DEFAULT.equals(profileId) ? ClusterMode.ON_PREMISE : ClusterMode.ISOLATED).name());
-    systemArgs.put(ProgramOptionConstants.CLUSTER_MODE, ClusterMode.ON_PREMISE.name());
+    systemArgs.put(ProgramOptionConstants.CLUSTER_MODE,
+                   (ProfileId.DEFAULT.equals(profileId) ? ClusterMode.ON_PREMISE : ClusterMode.ISOLATED).name());
 
     ProgramOptions programOptions = new SimpleProgramOptions(programId, new BasicArguments(systemArgs),
                                                              new BasicArguments(userArgs), debug);

@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * The {@link TwillApplication} for running programs in distributed mode.
@@ -42,11 +43,11 @@ public final class ProgramTwillApplication implements TwillApplication {
   private final ProgramOptions programOptions;
   private final TwillSpecification twillSpec;
 
-  ProgramTwillApplication(ProgramRunId programRunId, ProgramOptions programOptions,
-                          Map<String, RunnableDefinition> runnables,
-                          Iterable<Set<String>> launchOrder,
-                          Map<String, LocalizeResource> localizeResources,
-                          EventHandler eventHandler) {
+  public ProgramTwillApplication(ProgramRunId programRunId, ProgramOptions programOptions,
+                                 Map<String, RunnableDefinition> runnables,
+                                 Iterable<Set<String>> launchOrder,
+                                 Map<String, LocalizeResource> localizeResources,
+                                 @Nullable EventHandler eventHandler) {
     this.programRunId = programRunId;
     this.programOptions = programOptions;
 
@@ -87,7 +88,11 @@ public final class ProgramTwillApplication implements TwillApplication {
       }
     }
 
-    twillSpec = afterOrder.withEventHandler(eventHandler).build();
+    if (eventHandler != null) {
+      twillSpec = afterOrder.withEventHandler(eventHandler).build();
+    } else {
+      twillSpec = afterOrder.build();
+    }
   }
 
   /**

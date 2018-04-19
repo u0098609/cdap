@@ -19,6 +19,7 @@ package co.cask.cdap.internal.app.runtime.service;
 import co.cask.cdap.app.guice.AppFabricServiceRuntimeModule;
 import co.cask.cdap.app.runtime.AbstractProgramRuntimeService;
 import co.cask.cdap.app.runtime.ProgramController;
+import co.cask.cdap.app.runtime.ProgramRunner;
 import co.cask.cdap.app.runtime.ProgramRunnerFactory;
 import co.cask.cdap.app.runtime.ProgramRuntimeService;
 import co.cask.cdap.app.runtime.ProgramStateWriter;
@@ -64,8 +65,10 @@ public final class InMemoryProgramRuntimeService extends AbstractProgramRuntimeS
                                        @Named(AppFabricServiceRuntimeModule.NOAUTH_ARTIFACT_REPO)
                                          ArtifactRepository noAuthArtifactRepository,
                                        @Named(Constants.Service.MASTER_SERVICES_BIND_ADDRESS) InetAddress hostname,
-                                       ProgramStateWriter programStateWriter) {
-    super(cConf, programRunnerFactory, noAuthArtifactRepository, programStateWriter);
+                                       ProgramStateWriter programStateWriter,
+                                       @Constants.AppFabric.RemoteExecution
+                                           Map<ProgramType, ProgramRunner> remoteRunners) {
+    super(cConf, programRunnerFactory, noAuthArtifactRepository, programStateWriter, remoteRunners);
     this.hostname = hostname.getCanonicalHostName();
   }
 

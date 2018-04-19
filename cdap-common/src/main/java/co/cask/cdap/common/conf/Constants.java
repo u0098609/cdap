@@ -268,6 +268,15 @@ public final class Constants {
      * Topic name for publishing program status recording events to the messaging system
      */
     public static final String PROGRAM_STATUS_RECORD_EVENT_TOPIC = "program.status.record.event.topic";
+
+    /**
+     * Annotation for binding remote execution twill service
+     */
+    @Retention(RUNTIME)
+    @Target({ ElementType.FIELD, ElementType.PARAMETER, ElementType.METHOD })
+    @BindingAnnotation
+    public @interface RemoteExecution { }
+
   }
 
   /**

@@ -18,6 +18,7 @@ package co.cask.cdap.app.runtime;
 import co.cask.cdap.api.app.ApplicationSpecification;
 import co.cask.cdap.api.common.RuntimeArguments;
 import co.cask.cdap.api.plugin.Plugin;
+import co.cask.cdap.app.guice.ClusterMode;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.program.ProgramDescriptor;
 import co.cask.cdap.app.program.Programs;
@@ -31,6 +32,7 @@ import co.cask.cdap.common.utils.DirUtils;
 import co.cask.cdap.internal.app.runtime.AbstractListener;
 import co.cask.cdap.internal.app.runtime.BasicArguments;
 import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
+import co.cask.cdap.internal.app.runtime.ProgramRunners;
 import co.cask.cdap.internal.app.runtime.SimpleProgramOptions;
 import co.cask.cdap.internal.app.runtime.artifact.ArtifactDetail;
 import co.cask.cdap.internal.app.runtime.artifact.ArtifactRepository;
@@ -91,17 +93,22 @@ public abstract class AbstractProgramRuntimeService extends AbstractIdleService 
   private final ProgramRunnerFactory programRunnerFactory;
   private final ProgramStateWriter programStateWriter;
   private final ArtifactRepository noAuthArtifactRepository;
+  private final Map<ProgramType, ProgramRunner> remoteRunners;
 
   protected AbstractProgramRuntimeService(CConfiguration cConf,
                                           ProgramRunnerFactory programRunnerFactory,
                                           ArtifactRepository noAuthArtifactRepository,
-                                          ProgramStateWriter programStateWriter) {
+                                          ProgramStateWriter programStateWriter,
+                                          // TODO: Merge this with program runner factory
+                                          @Constants.AppFabric.RemoteExecution
+                                            Map<ProgramType, ProgramRunner> remoteRunners) {
     this.cConf = cConf;
     this.runtimeInfosLock = new ReentrantReadWriteLock();
     this.runtimeInfos = HashBasedTable.create();
     this.programRunnerFactory = programRunnerFactory;
     this.programStateWriter = programStateWriter;
     this.noAuthArtifactRepository = noAuthArtifactRepository;
+    this.remoteRunners = remoteRunners;
   }
 
   @Override
@@ -111,7 +118,12 @@ public abstract class AbstractProgramRuntimeService extends AbstractIdleService 
     // Publish the program's starting state. We don't know the Twill RunId yet, hence always passing in null.
     programStateWriter.start(programId.run(runId), options, null, programDescriptor);
 
-    ProgramRunner runner = programRunnerFactory.create(programId.getType());
+    ClusterMode clusterMode = ProgramRunners.getClusterMode(options);
+
+    ProgramRunner runner = clusterMode == ClusterMode.ON_PREMISE
+      ? programRunnerFactory.create(programId.getType())
+      : remoteRunners.get(programId.getType());
+
     File tempDir = createTempDirectory(programId, runId);
     Runnable cleanUpTask = createCleanupTask(tempDir, runner);
     try {

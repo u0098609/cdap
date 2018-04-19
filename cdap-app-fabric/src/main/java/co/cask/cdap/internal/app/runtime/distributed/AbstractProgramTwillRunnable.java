@@ -60,6 +60,7 @@ import com.google.inject.Module;
 import com.google.inject.util.Modules;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.tephra.TransactionManager;
 import org.apache.twill.api.Command;
 import org.apache.twill.api.ElectionHandler;
 import org.apache.twill.api.RunId;
@@ -74,6 +75,7 @@ import org.apache.twill.filesystem.Location;
 import org.apache.twill.internal.Constants;
 import org.apache.twill.internal.EnvKeys;
 import org.apache.twill.internal.TwillRuntimeSpecification;
+import org.apache.twill.internal.json.TwillRuntimeSpecificationAdapter;
 import org.apache.twill.kafka.client.BrokerService;
 import org.apache.twill.kafka.client.KafkaClientService;
 import org.apache.twill.zookeeper.ZKClientService;
@@ -150,9 +152,8 @@ public abstract class AbstractProgramTwillRunnable<T extends ProgramRunner> impl
   }
 
   protected void doMain() throws Exception {
-    TwillRuntimeSpecification twillRuntimeSpec = readJsonFile(new File(Constants.Files.RUNTIME_CONFIG_JAR,
-                                                                       Constants.Files.TWILL_SPEC),
-                                                              TwillRuntimeSpecification.class);
+    TwillRuntimeSpecification twillRuntimeSpec = TwillRuntimeSpecificationAdapter.create()
+      .fromJson(new File(Constants.Files.RUNTIME_CONFIG_JAR, Constants.Files.TWILL_SPEC));
     org.apache.twill.internal.Arguments arguments = readJsonFile(new File(Constants.Files.RUNTIME_CONFIG_JAR,
                                                                           Constants.Files.ARGUMENTS),
                                                                  org.apache.twill.internal.Arguments.class);
@@ -163,9 +164,16 @@ public abstract class AbstractProgramTwillRunnable<T extends ProgramRunner> impl
 
     // Add the program state writer listener when the program controller is available
     ProgramStateWriter programStateWriter = injector.getInstance(ProgramStateWriter.class);
-    controllerFuture.thenAccept(c -> c.addListener(new StateChangeListener(c.getProgramRunId(), null,
-                                                                           programStateWriter),
-                                                   Threads.SAME_THREAD_EXECUTOR));
+    controllerFuture.thenAcceptAsync(
+      c -> {
+        LOG.info("Adding listener to controller");
+        c.addListener(new StateChangeListener(c.getProgramRunId(), null,
+                                              programStateWriter), Threads.SAME_THREAD_EXECUTOR);
+      },
+      command -> {
+        Thread t = new Thread(command);
+        t.start();
+      });
     run();
   }
 
@@ -226,6 +234,15 @@ public abstract class AbstractProgramTwillRunnable<T extends ProgramRunner> impl
     CConfiguration cConf = CConfiguration.create();
     cConf.clear();
     cConf.addResource(systemArgs.getOption(ProgramOptionConstants.CDAP_CONF_FILE));
+
+    if (ProgramRunners.getClusterMode(programOptions) == ClusterMode.ISOLATED) {
+      cConf.set(co.cask.cdap.common.conf.Constants.MessagingSystem.HTTP_SERVER_BIND_ADDRESS,
+                context.getHost().getHostName());
+      // Set the ZK to the one in the cluster
+      cConf.set(co.cask.cdap.common.conf.Constants.Zookeeper.QUORUM, context.getHost().getHostName() + ":2181/cdap");
+
+      cConf.set(co.cask.cdap.common.conf.Constants.RuntimeMonitor.SERVER_HOST, "::");
+    }
 
     injector = Guice.createInjector(createModule(cConf, hConf, programOptions, programRunId));
 
@@ -383,6 +400,7 @@ public abstract class AbstractProgramTwillRunnable<T extends ProgramRunner> impl
                                 ProgramOptions programOptions, ProgramRunId programRunId) {
 
     Arguments systemArgs = programOptions.getArguments();
+    ClusterMode clusterMode = ProgramRunners.getClusterMode(programOptions);
 
     DistributedProgramContainerModule.Builder builder = DistributedProgramContainerModule.builder(
       cConf, hConf, programRunId, systemArgs.getOption(ProgramOptionConstants.INSTANCE_ID));
@@ -392,12 +410,15 @@ public abstract class AbstractProgramTwillRunnable<T extends ProgramRunner> impl
     Optional.ofNullable(systemArgs.getOption(ProgramOptionConstants.PRINCIPAL)).ifPresent(builder::setPrincipal);
     Optional.ofNullable(getServiceAnnouncer()).ifPresent(builder::setServiceAnnouncer);
 
+    builder.setClusterMode(clusterMode);
+
     Module module = builder.build();
 
     // In isolated mode, TMS runs in the "launcher" container.
     // We don't do this in the DistributedProgramContainerModule
     // because that is used in both launcher and task containers
-    if (ProgramRunners.getClusterMode(programOptions) == ClusterMode.ISOLATED) {
+
+    if (clusterMode == ClusterMode.ISOLATED) {
       module = Modules.override(module).with(new MessagingServerRuntimeModule().getStandaloneModules());
     }
 
@@ -500,6 +521,7 @@ public abstract class AbstractProgramTwillRunnable<T extends ProgramRunner> impl
     if (messagingService instanceof Service) {
       services.add((Service) messagingService);
     }
+    services.add(injector.getInstance(TransactionManager.class));
     services.add(injector.getInstance(MessagingHttpService.class));
     services.add(injector.getInstance(RuntimeMonitorServer.class));
   }

@@ -41,6 +41,7 @@ import com.google.common.io.ByteStreams;
 import com.google.common.io.CharStreams;
 import joptsimple.OptionSpec;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.yarn.api.ApplicationConstants;
 import org.apache.twill.api.ClassAcceptor;
 import org.apache.twill.api.EventHandlerSpecification;
 import org.apache.twill.api.LocalFile;
@@ -73,15 +74,17 @@ import org.apache.twill.internal.utils.Dependencies;
 import org.apache.twill.internal.utils.Paths;
 import org.apache.twill.internal.utils.Resources;
 import org.apache.twill.launcher.FindFreePort;
-import org.apache.twill.launcher.TwillLauncher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -438,26 +441,44 @@ public class RemoteExecutionTwillPreparer implements TwillPreparer {
                                                     twillRuntimeSpec.getReservedMemory(runnableName),
                                                     twillRuntimeSpec.getMinHeapRatio(runnableName));
 
-          List<String> commands = new ArrayList<>();
-          commands.add("export HADOOP_CLASSPATH=`hadoop classpath`");
+          String logsDir = targetPath + "/logs";
+
+          // TODO: Will be removed Starting ZK
+          execute(session, "sudo zookeeper-server start");
+
+          StringWriter writer = new StringWriter();
+          PrintWriter scriptWriter = new PrintWriter(writer, true);
+
+          scriptWriter.println("#!/bin/bash");
+          scriptWriter.println("export HADOOP_CLASSPATH=`hadoop classpath`");
           Map<String, String> runnableEnv = environments.getOrDefault(runnableName, Collections.emptyMap());
           for (Map.Entry<String, String> env : runnableEnv.entrySet()) {
-            commands.add(String.format("export %s=\"%s\"", env.getKey(), env.getValue()));
+            String value = env.getValue();
+            if (ApplicationConstants.LOG_DIR_EXPANSION_VAR.equals(value)) {
+              value = logsDir;
+            }
+            scriptWriter.printf("export %s=\"%s\"\n", env.getKey(), value);
           }
-          commands.add(String.format("export %s=\"%s\"", EnvKeys.TWILL_RUNNABLE_NAME, runnableName));
-          commands.add(String.format("mkdir -p %s/tmp", targetPath));
-          commands.add(String.format("mkdir -p %s/logs", targetPath));
-          commands.add(String.format("cd %s", targetPath));
-          commands.add(String.format(
-            "nohup java -Djava.io.tmpdir=tmp -cp %s -Xmx%dm %s %s '%s' true " +
-              ">logs/stdout 2>logs/stderr &",
-            Constants.Files.LAUNCHER_JAR, memory,
+          scriptWriter.printf("export %s=\"%s\"\n", EnvKeys.TWILL_RUNNABLE_NAME, runnableName);
+          scriptWriter.printf("mkdir -p %s/tmp\n", targetPath);
+          scriptWriter.printf("mkdir -p %s\n", logsDir);
+          scriptWriter.printf("cd %s\n", targetPath);
+          scriptWriter.printf(
+            "nohup java -Djava.io.tmpdir=tmp -cp %s/%s -Xmx%dm %s %s '%s' true >%s/stdout 2>%s/stderr &\n",
+            targetPath, Constants.Files.LAUNCHER_JAR, memory,
             jvmOptions.getRunnableExtraOptions(runnableName),
-            TwillLauncher.class.getName(),
-            runtimeSpec.getRunnableSpecification().getClassName()));
+            RemoteLauncher.class.getName(),
+            runtimeSpec.getRunnableSpecification().getClassName(),
+            logsDir, logsDir);
+
+          scriptWriter.flush();
+
+          byte[] scriptContent = writer.toString().getBytes(StandardCharsets.UTF_8);
+          session.copy(new ByteArrayInputStream(scriptContent),
+                       targetPath, "launcher.sh", scriptContent.length, 0700, null, null);
 
           LOG.info("Starting runnable {} with SSH on {}", runnableName, sshConfig.getHost());
-          execute(session, commands);
+          execute(session, "sudo " + targetPath + "/launcher.sh");
 
           ConnectionConfig connectionConfig = ConnectionConfig.builder()
             .setHostname(sshConfig.getHost())
@@ -792,7 +813,7 @@ public class RemoteExecutionTwillPreparer implements TwillPreparer {
               }
               return true;
             }
-          }, TwillLauncher.class.getName(), FindFreePort.class.getName());
+          }, RemoteLauncher.class.getName(), FindFreePort.class.getName());
         }
       }
     });
