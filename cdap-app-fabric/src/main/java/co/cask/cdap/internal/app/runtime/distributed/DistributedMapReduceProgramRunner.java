@@ -79,7 +79,7 @@ public final class DistributedMapReduceProgramRunner extends DistributedProgramR
   }
 
   @Override
-  protected void setupLaunchConfig(LaunchConfig launchConfig, Program program, ProgramOptions options,
+  protected void setupLaunchConfig(ProgramLaunchConfig launchConfig, Program program, ProgramOptions options,
                                    CConfiguration cConf, Configuration hConf, File tempDir) throws IOException {
 
     ApplicationSpecification appSpec = program.getApplicationSpecification();
@@ -93,8 +93,8 @@ public final class DistributedMapReduceProgramRunner extends DistributedProgramR
       .addRunnable(spec.getName(), new MapReduceTwillRunnable(spec.getName()),
                    1, clientArgs, spec.getDriverResources(), 0)
     // Add extra resources, classpath and dependencies
-      .addExtraResources(MapReduceContainerHelper.localizeFramework(hConf, new HashMap<String, LocalizeResource>()))
-      .addExtraClasspath(MapReduceContainerHelper.addMapReduceClassPath(hConf, new ArrayList<String>()))
+      .addExtraResources(MapReduceContainerHelper.localizeFramework(hConf, new HashMap<>()))
+      .addExtraClasspath(MapReduceContainerHelper.addMapReduceClassPath(hConf, new ArrayList<>()))
       .addExtraDependencies(YarnClientProtocolProvider.class);
   }
 }

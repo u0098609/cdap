@@ -69,7 +69,7 @@ public final class DistributedWebappProgramRunner extends DistributedProgramRunn
   }
 
   @Override
-  protected void setupLaunchConfig(LaunchConfig launchConfig, Program program, ProgramOptions options,
+  protected void setupLaunchConfig(ProgramLaunchConfig launchConfig, Program program, ProgramOptions options,
                                    CConfiguration cConf, Configuration hConf, File tempDir) throws IOException {
     String serviceName = WebappProgramRunner.getServiceName(program.getId());
     launchConfig.addRunnable(serviceName, new WebappTwillRunnable(serviceName), 1,

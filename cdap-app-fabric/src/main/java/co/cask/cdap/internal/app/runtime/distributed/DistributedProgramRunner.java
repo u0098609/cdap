@@ -17,7 +17,6 @@
 package co.cask.cdap.internal.app.runtime.distributed;
 
 import ch.qos.logback.classic.Level;
-import co.cask.cdap.api.Resources;
 import co.cask.cdap.api.app.ApplicationSpecification;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.program.ProgramDescriptor;
@@ -35,7 +34,6 @@ import co.cask.cdap.common.lang.jar.BundleJarUtil;
 import co.cask.cdap.common.logging.LoggerLogHandler;
 import co.cask.cdap.common.logging.LoggingContext;
 import co.cask.cdap.common.logging.LoggingContextAccessor;
-import co.cask.cdap.common.twill.HadoopClassExcluder;
 import co.cask.cdap.common.twill.TwillAppLifecycleEventHandler;
 import co.cask.cdap.common.utils.DirUtils;
 import co.cask.cdap.data2.util.hbase.HBaseTableUtilFactory;
@@ -57,7 +55,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -67,14 +64,11 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.yarn.api.ApplicationConstants;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.tephra.TxConstants;
-import org.apache.twill.api.ClassAcceptor;
 import org.apache.twill.api.Configs;
 import org.apache.twill.api.EventHandler;
-import org.apache.twill.api.ResourceSpecification;
 import org.apache.twill.api.RunId;
 import org.apache.twill.api.TwillController;
 import org.apache.twill.api.TwillPreparer;
-import org.apache.twill.api.TwillRunnable;
 import org.apache.twill.api.TwillRunner;
 import org.apache.twill.api.logging.LogEntry;
 import org.apache.twill.common.Cancellable;
@@ -169,7 +163,7 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
   /**
    * Provides the configuration for launching an program container.
    *
-   * @param launchConfig the {@link LaunchConfig} to setup
+   * @param launchConfig the {@link ProgramLaunchConfig} to setup
    * @param program the program to launch
    * @param options the program options
    * @param cConf the configuration for this launch
@@ -177,7 +171,7 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
    * @param tempDir a temporary directory for creating temp file. The content will be cleanup automatically
    *                once the program is launch.
    */
-  protected abstract void setupLaunchConfig(LaunchConfig launchConfig, Program program, ProgramOptions options,
+  protected abstract void setupLaunchConfig(ProgramLaunchConfig launchConfig, Program program, ProgramOptions options,
                                             CConfiguration cConf, Configuration hConf, File tempDir) throws IOException;
 
   /**
@@ -201,7 +195,7 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
     final File tempDir = DirUtils.createTempDir(new File(cConf.get(Constants.CFG_LOCAL_DATA_DIR),
                                                          cConf.get(Constants.AppFabric.TEMP_DIR)).getAbsoluteFile());
     try {
-      final LaunchConfig launchConfig = new LaunchConfig();
+      final ProgramLaunchConfig launchConfig = new ProgramLaunchConfig();
       setupLaunchConfig(launchConfig, program, oldOptions, cConf, hConf, tempDir);
 
       // Add extra localize resources needed by the program runner
@@ -589,118 +583,6 @@ public abstract class DistributedProgramRunner implements ProgramRunner {
     controller.onRunning(cleanup, Threads.SAME_THREAD_EXECUTOR);
     controller.onTerminated(cleanup, Threads.SAME_THREAD_EXECUTOR);
     return controller;
-  }
-
-  /**
-   * Configuration for launching Twill container for a program.
-   */
-  @SuppressWarnings({"WeakerAccess", "UnusedReturnValue"})
-  protected static final class LaunchConfig {
-
-    private final Map<String, LocalizeResource> extraResources = new HashMap<>();
-    private final List<String> extraClasspath = new ArrayList<>();
-    private final Map<String, String> extraEnv = new HashMap<>();
-    private final Map<String, RunnableDefinition> runnables = new HashMap<>();
-    private final List<Set<String>> launchOrder = new ArrayList<>();
-    private final Set<Class<?>> extraDependencies = new HashSet<>();
-    private ClassAcceptor classAcceptor = new HadoopClassExcluder();
-
-    public LaunchConfig addExtraResources(Map<String, LocalizeResource> resources) {
-      extraResources.putAll(resources);
-      return this;
-    }
-
-    public LaunchConfig addExtraClasspath(Iterable<String> classpath) {
-      Iterables.addAll(extraClasspath, classpath);
-      return this;
-    }
-
-    public LaunchConfig addExtraEnv(Map<String, String> env) {
-      extraEnv.putAll(env);
-      return this;
-    }
-
-    public LaunchConfig addRunnable(String name, TwillRunnable runnable, int instances,
-                                    Map<String, String> args, Resources defaultResource) {
-      return addRunnable(name, runnable, instances, args, defaultResource, null);
-    }
-
-    public LaunchConfig addRunnable(String name, TwillRunnable runnable, int instances,
-                                    Map<String, String> args, Resources defaultResources,
-                                    @Nullable Integer maxRetries) {
-      ResourceSpecification resourceSpec = createResourceSpec(SystemArguments.getResources(args, defaultResources),
-                                                              instances);
-
-      Map<String, String> configs = SystemArguments.getTwillContainerConfigs(args, resourceSpec.getMemorySize());
-      Map<String, Level> logLevels = SystemArguments.getLogLevels(args);
-
-      runnables.put(name, new RunnableDefinition(runnable, resourceSpec, configs, logLevels, maxRetries));
-      return this;
-    }
-
-    public LaunchConfig setLaunchOrder(Iterable<? extends Set<String>> order) {
-      launchOrder.clear();
-      Iterables.addAll(launchOrder, order);
-      return this;
-    }
-
-    public LaunchConfig setClassAcceptor(ClassAcceptor classAcceptor) {
-      this.classAcceptor = classAcceptor;
-      return this;
-    }
-
-    public LaunchConfig addExtraDependencies(Class<?>...classes) {
-      return addExtraDependencies(Arrays.asList(classes));
-    }
-
-    public LaunchConfig addExtraDependencies(Iterable<? extends Class<?>> classes) {
-      Iterables.addAll(extraDependencies, classes);
-      return this;
-    }
-
-    public Map<String, LocalizeResource> getExtraResources() {
-      return extraResources;
-    }
-
-    public List<String> getExtraClasspath() {
-      return extraClasspath;
-    }
-
-    public Map<String, String> getExtraEnv() {
-      return extraEnv;
-    }
-
-    public ClassAcceptor getClassAcceptor() {
-      return classAcceptor;
-    }
-
-    public Map<String, RunnableDefinition> getRunnables() {
-      return runnables;
-    }
-
-    public List<Set<String>> getLaunchOrder() {
-      return launchOrder;
-    }
-
-    public Set<Class<?>> getExtraDependencies() {
-      return extraDependencies;
-    }
-
-    public LaunchConfig clearRunnables() {
-      runnables.clear();
-      return this;
-    }
-
-    /**
-     * Returns a {@link ResourceSpecification} created from the given {@link Resources} and number of instances.
-     */
-    private ResourceSpecification createResourceSpec(Resources resources, int instances) {
-      return ResourceSpecification.Builder.with()
-        .setVirtualCores(resources.getVirtualCores())
-        .setMemory(resources.getMemoryMB(), ResourceSpecification.SizeUnit.MEGA)
-        .setInstances(instances)
-        .build();
-    }
   }
 
   /**

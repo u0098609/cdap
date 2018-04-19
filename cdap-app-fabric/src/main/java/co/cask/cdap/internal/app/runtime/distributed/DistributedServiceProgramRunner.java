@@ -75,7 +75,7 @@ public class DistributedServiceProgramRunner extends DistributedProgramRunner
   }
 
   @Override
-  protected void setupLaunchConfig(LaunchConfig launchConfig, Program program, ProgramOptions options,
+  protected void setupLaunchConfig(ProgramLaunchConfig launchConfig, Program program, ProgramOptions options,
                                    CConfiguration cConf, Configuration hConf, File tempDir) {
 
     ApplicationSpecification appSpec = program.getApplicationSpecification();
