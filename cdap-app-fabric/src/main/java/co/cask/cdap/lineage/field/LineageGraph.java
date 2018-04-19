@@ -22,6 +22,7 @@ import co.cask.cdap.api.lineage.field.Operation;
 import co.cask.cdap.api.lineage.field.ReadOperation;
 import co.cask.cdap.api.lineage.field.TransformOperation;
 import co.cask.cdap.api.lineage.field.WriteOperation;
+import com.google.common.base.Charsets;
 import com.google.common.collect.Sets;
 
 import java.io.UnsupportedEncodingException;
@@ -76,8 +77,8 @@ public class LineageGraph {
           ReadOperation read = (ReadOperation) operation;
           EndPoint source = read.getSource();
           if (source == null) {
-            throw new IllegalArgumentException(String.format("Source cannot be null for the read operation '%s'.",
-                                                             read.getName()));
+            throw new IllegalArgumentException(String.format("Source endpoint cannot be null for the read " +
+                                                               "operation '%s'.", read.getName()));
           }
           readExists = true;
           break;
@@ -89,8 +90,8 @@ public class LineageGraph {
           WriteOperation write = (WriteOperation) operation;
           EndPoint destination = write.getDestination();
           if (destination == null) {
-            throw new IllegalArgumentException(String.format("Destination cannot be null for the write operation '%s'.",
-                                                             write.getName()));
+            throw new IllegalArgumentException(String.format("Destination endpoint cannot be null for the write " +
+                                                               "operation '%s'.", write.getName()));
           }
           allOrigins.addAll(write.getInputs().stream().map(InputField::getOrigin).collect(Collectors.toList()));
           writeExists = true;
@@ -109,9 +110,9 @@ public class LineageGraph {
     }
 
     Sets.SetView<String> invalidOrigins = Sets.difference(allOrigins, operationNames);
-    if (invalidOrigins.size() > 0) {
+    if (!invalidOrigins.isEmpty()) {
       throw new IllegalArgumentException(String.format("No operation is associated with the origins '%s'.",
-                                                       invalidOrigins.toString()));
+                                                       invalidOrigins));
     }
 
     this.operations = new HashSet<>(operations);
@@ -133,11 +134,7 @@ public class LineageGraph {
   }
 
   private long computeChecksum() {
-    try {
-      return fingerprint64(canonicalize().getBytes("UTF-8"));
-    } catch (UnsupportedEncodingException e) {
-      throw new RuntimeException("Failed to compute the checksum of the graph.", e);
-    }
+    return fingerprint64(canonicalize().getBytes(Charsets.UTF_8));
   }
 
   /**
@@ -257,8 +254,9 @@ public class LineageGraph {
 
   private static final long EMPTY64 = 0xc15d213aa4d7a795L;
 
-  /** Returns the 64-bit Rabin Fingerprint (as recommended in the Avro
-   * spec) of a byte string. */
+
+  /** The implementation of fingerprint algorithm is copied from {@code org.apache.avro.SchemaNormalization} class.
+   * Returns the 64-bit Rabin Fingerprint (as recommended in the Avro spec) of a byte string. */
   private long fingerprint64(byte[] data) {
     long result = EMPTY64;
     for (byte b: data) {
