@@ -351,15 +351,18 @@ class ProfilesListView extends Component {
         </div>
       );
     }
-    if (this.props.error) {
-      return (
-        <div className="text-danger">
-          {JSON.stringify(this.props.error, null, 2)}
-        </div>
-      );
-    }
     return (
       <div className="profiles-list-view">
+        {
+          this.props.error ?
+            (
+              <div className="text-danger">
+                {JSON.stringify(this.props.error, null, 2)}
+              </div>
+            )
+          :
+            null
+        }
         <ViewAllLabel
           arrayToLimit={this.state.profiles}
           limit={NUM_PROFILES_TO_SHOW}
@@ -389,7 +392,7 @@ const mapStateToProps = (state) => {
 
 const ConnectedProfilesListView = connect(mapStateToProps)(ProfilesListView);
 
-export default function ProfilesCreateViewFn({...props}) {
+export default function ProfilesListViewFn({...props}) {
   return (
     <Provider store={ProfilesStore}>
       <ConnectedProfilesListView {...props} />

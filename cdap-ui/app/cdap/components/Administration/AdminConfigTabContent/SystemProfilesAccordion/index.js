@@ -109,8 +109,10 @@ class SystemProfilesAccordion extends Component {
 
 const mapStateToProps = (state, ownProps) => {
   return {
-    // This is needed to show the profiles count when we haven't mounted ProfilesListView
-    // component, which is only mounted when the accordion is expanded
+    // We have to get profiles count from ownProps to show on the accordion label, instead
+    // of getting from store state, if ProfilesStore is not initialized. This store is only
+    // initalized when ProfilesListView component is mounted, which only happens when the
+    // accordion is expanded
     profilesCount: state.profiles.length || ownProps.profiles.length
   };
 };
