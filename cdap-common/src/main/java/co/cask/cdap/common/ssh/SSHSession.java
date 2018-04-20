@@ -17,6 +17,7 @@
 package co.cask.cdap.common.ssh;
 
 import com.google.common.io.ByteStreams;
+import com.google.common.io.CharStreams;
 import com.jcraft.jsch.Channel;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
@@ -25,6 +26,7 @@ import com.jcraft.jsch.Session;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -96,10 +98,15 @@ public class SSHSession implements AutoCloseable {
 
       try {
         ChannelExec channelExec = (ChannelExec) channel;
+        // Should get the stream before connecting.
+        // Otherwise JSch will write the output to some default stream, causing data missing from
+        // the InputStream that acquired later.
+        SSHProcess process = new SSHProcess(channelExec, channelExec.getOutputStream(),
+                                            channelExec.getInputStream(), channelExec.getErrStream());
         channelExec.setCommand(commands.stream().collect(Collectors.joining(";")));
         channelExec.connect();
 
-        return new SSHProcess(channelExec);
+        return process;
       } catch (Exception e) {
         channel.disconnect();
         throw e;
@@ -107,6 +114,53 @@ public class SSHSession implements AutoCloseable {
 
     } catch (JSchException e) {
       throw new IOException(e);
+    }
+  }
+
+  /**
+   * Executes a sequence of commands on the remote host and block until execution completed.
+   *
+   * @param commands the commands to execute
+   * @return the output to stdout by the commands
+   * @throws IOException if failed to execute command or command exit with non-zero values.
+   */
+  public String executeAndWait(String...commands) throws IOException {
+    return executeAndWait(Arrays.asList(commands));
+  }
+
+  /**
+   * Executes a sequence of commands on the remote host and block until execution completed.
+   *
+   * @param commands the commands to execute
+   * @return the output to stdout by the commands
+   * @throws IOException if failed to execute command or command exit with non-zero values.
+   */
+  public String executeAndWait(List<String> commands) throws IOException {
+    SSHProcess process = execute(commands);
+
+    // Reading will be blocked until the process finished
+    String out = CharStreams.toString(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+    String err = CharStreams.toString(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8));
+
+    // Await uninterruptedly
+    boolean interrupted = false;
+    try {
+      while (true) {
+        try {
+          int exitCode = process.waitFor();
+          if (exitCode != 0) {
+            throw new RuntimeException("Commands execution failed with exit code (" + exitCode + ") Commands: " +
+                                         commands + ", Output: " + out + " Error: " + err);
+          }
+          return out;
+        } catch (InterruptedException e) {
+          interrupted = true;
+        }
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
 

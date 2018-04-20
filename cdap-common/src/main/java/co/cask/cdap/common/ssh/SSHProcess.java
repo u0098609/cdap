@@ -21,7 +21,6 @@ import co.cask.cdap.common.service.RetryStrategies;
 import co.cask.cdap.common.service.RetryStrategy;
 import com.jcraft.jsch.ChannelExec;
 
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -34,9 +33,15 @@ import java.util.concurrent.TimeoutException;
 public final class SSHProcess {
 
   private final ChannelExec channelExec;
+  private final OutputStream outputStream;
+  private final InputStream inputStream;
+  private final InputStream errorStream;
 
-  SSHProcess(ChannelExec channelExec) {
+  SSHProcess(ChannelExec channelExec, OutputStream outputStream, InputStream inputStream, InputStream errorStream) {
     this.channelExec = channelExec;
+    this.outputStream = outputStream;
+    this.inputStream = inputStream;
+    this.errorStream = errorStream;
   }
 
   /**
@@ -46,7 +51,7 @@ public final class SSHProcess {
    * @throws IOException if failed to open the stream
    */
   public OutputStream getOutputStream() throws IOException {
-    return channelExec.getOutputStream();
+    return outputStream;
   }
 
   /**
@@ -56,7 +61,7 @@ public final class SSHProcess {
    * @throws IOException if failed to open the stream
    */
   public InputStream getInputStream() throws IOException {
-    return new ChannelInputStream(channelExec.getInputStream());
+    return inputStream;
   }
 
   /**
@@ -66,16 +71,27 @@ public final class SSHProcess {
    * @throws IOException if failed to open the stream
    */
   public InputStream getErrorStream() throws IOException {
-    return new ChannelInputStream(channelExec.getErrStream());
+    return errorStream;
+  }
+
+  /**
+   * Blocks for the remote process to finish.
+   *
+   * @return the exit code of the process
+   * @throws InterruptedException if this thread is interrupted while waiting
+   */
+  public int waitFor() throws InterruptedException {
+    RetryStrategy retry = RetryStrategies.fixDelay(100, TimeUnit.MILLISECONDS);
+    return Retries.supplyWithRetries(this::exitValue, retry, IllegalThreadStateException.class::isInstance);
   }
 
   /**
    * Blocks for the remote process to finish.
    *
    * @param timeout the maximum time to wait
-   * @param unit the {@link TimeUnit} for the timeout
+   * @param unit    the {@link TimeUnit} for the timeout
    * @return the exit code of the process
-   * @throws TimeoutException if the process is not yet terminated after the given timeout
+   * @throws TimeoutException     if the process is not yet terminated after the given timeout
    * @throws InterruptedException if this thread is interrupted while waiting
    */
   public int waitFor(long timeout, TimeUnit unit) throws TimeoutException, InterruptedException {
@@ -110,32 +126,5 @@ public final class SSHProcess {
    */
   public void destroy() {
     channelExec.disconnect();
-  }
-
-  /**
-   * Wrapper for {@link InputStream} coming from {@link ChannelExec}. It checks if the {@link ChannelExec} is
-   * closed and return EOF if it does.
-   */
-  private final class ChannelInputStream extends FilterInputStream {
-
-    ChannelInputStream(InputStream in) {
-      super(in);
-    }
-
-    @Override
-    public int read() throws IOException {
-      if (in.available() == 0 && channelExec.isClosed()) {
-        return -1;
-      }
-      return in.read();
-    }
-
-    @Override
-    public int read(byte[] b, int off, int len) throws IOException {
-      if (in.available() == 0 && channelExec.isClosed()) {
-        return -1;
-      }
-      return super.read(b, off, len);
-    }
   }
 }
