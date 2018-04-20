@@ -16,6 +16,7 @@
 
 package co.cask.cdap.common.ssh;
 
+import co.cask.cdap.runtime.spi.ssh.SSHSession;
 import org.apache.sshd.server.Command;
 import org.apache.sshd.server.Environment;
 import org.apache.sshd.server.ExitCallback;
@@ -129,7 +130,7 @@ public class SSHSessionTest {
 
     // SCP the file to the given directory
     File targetFolder = TEMP_FOLDER.newFolder();
-    try (SSHSession session = new SSHSession(config)) {
+    try (SSHSession session = new DefaultSSHSession(config)) {
       session.copy(file.toPath(), targetFolder.getAbsolutePath());
     }
 
@@ -147,7 +148,7 @@ public class SSHSessionTest {
       .setPrivateKey(Files.readAllBytes(Paths.get("/Users/terenceyim/.ssh/none_id_rsa")))
       .build();
 
-    try (SSHSession session = new SSHSession(config)) {
+    try (SSHSession session = new DefaultSSHSession(config)) {
       for (int i = 0; i < 10; i++) {
         String msg = "Sending some message " + i;
         String result = session.executeAndWait(msg);
@@ -156,7 +157,7 @@ public class SSHSessionTest {
     }
 
     // Test the error exit
-    try (SSHSession session = new SSHSession(config)) {
+    try (SSHSession session = new DefaultSSHSession(config)) {
       try {
         session.executeAndWait("failure");
         Assert.fail("Expected failure from ssh command");

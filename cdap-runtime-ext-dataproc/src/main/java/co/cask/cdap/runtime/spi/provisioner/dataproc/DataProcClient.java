@@ -18,7 +18,7 @@ package co.cask.cdap.runtime.spi.provisioner.dataproc;
 
 import co.cask.cdap.runtime.spi.provisioner.Node;
 import co.cask.cdap.runtime.spi.provisioner.RetryableProvisionException;
-import co.cask.cdap.runtime.spi.provisioner.SSHPublicKey;
+import co.cask.cdap.runtime.spi.ssh.SSHPublicKey;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.util.Throwables;
 import com.google.api.gax.longrunning.OperationSnapshot;

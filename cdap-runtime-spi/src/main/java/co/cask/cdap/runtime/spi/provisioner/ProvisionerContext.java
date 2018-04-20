@@ -16,6 +16,8 @@
 
 package co.cask.cdap.runtime.spi.provisioner;
 
+import co.cask.cdap.runtime.spi.ssh.SSHPublicKey;
+
 import java.util.Map;
 import java.util.Optional;
 

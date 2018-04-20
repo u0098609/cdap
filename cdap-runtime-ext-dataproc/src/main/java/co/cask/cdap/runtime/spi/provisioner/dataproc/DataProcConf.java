@@ -17,7 +17,7 @@
 package co.cask.cdap.runtime.spi.provisioner.dataproc;
 
 import co.cask.cdap.runtime.spi.provisioner.ProvisionerContext;
-import co.cask.cdap.runtime.spi.provisioner.SSHPublicKey;
+import co.cask.cdap.runtime.spi.ssh.SSHPublicKey;
 import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.HttpTransport;

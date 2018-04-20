@@ -20,7 +20,7 @@ import co.cask.cdap.proto.id.ProgramRunId;
 import co.cask.cdap.runtime.spi.provisioner.ProgramRun;
 import co.cask.cdap.runtime.spi.provisioner.Provisioner;
 import co.cask.cdap.runtime.spi.provisioner.ProvisionerContext;
-import co.cask.cdap.runtime.spi.provisioner.SSHPublicKey;
+import co.cask.cdap.runtime.spi.ssh.SSHPublicKey;
 
 import java.util.Collections;
 import java.util.Map;
